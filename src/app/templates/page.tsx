@@ -208,7 +208,7 @@ export default function TemplatesPage() {
         variant: 'success',
       });
     } catch (error) {
-      console.error('Error publishing template:', error);
+      // console.error('Error publishing template:', error);
       addToast({
         title: 'Error',
         description: 'Failed to publish template.',
