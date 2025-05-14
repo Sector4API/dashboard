@@ -68,7 +68,23 @@ export const createTemplate = async (input: TemplateInput) => {
       global_text_color: input.global_text_color
     };
 
-    console.log('Attempting to insert template with data:', templateData);
+    // Create a logger utility
+    const logger = {
+      error: (message: string, error?: any) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error(message, error)
+        }
+        // In production, you might want to use a proper logging service
+      },
+      info: (message: string, data?: any) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(message, data)
+        }
+      }
+    }
+
+    // Then replace all console.log/error calls with logger
+    logger.info('Attempting to insert template with data:', templateData)
 
     const { data, error } = await dashboardSupabase
       .from('templates')
