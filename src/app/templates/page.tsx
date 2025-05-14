@@ -20,7 +20,7 @@ export default function TemplatesPage() {
         const data = await getTemplates();
         setTemplates(data || []);
       } catch (error) {
-        console.error('Error fetching templates:', error);
+        // console.error('Error fetching templates:', error);
         addToast({
           title: 'Error',
           description: 'Failed to fetch templates.',
@@ -155,7 +155,7 @@ export default function TemplatesPage() {
       });
       setSeasonalBadges([1, 2, 3]);
     } catch (error) {
-      console.error('Error creating template:', error);
+      // console.error('Error creating template:', error);
       addToast({
         title: 'Error',
         description: 'Failed to create template. Please try again.',
@@ -189,7 +189,7 @@ export default function TemplatesPage() {
         variant: 'success',
       });
     } catch (error) {
-      console.error('Error deleting template:', error);
+      // console.error('Error deleting template:', error);
       addToast({
         title: 'Error',
         description: 'Failed to delete template.',
@@ -201,7 +201,7 @@ export default function TemplatesPage() {
   const handlePublish = async (id: string) => {
     try {
       // Logic to publish the template
-      console.log(`Publishing template with id: ${id}`);
+      // console.log(`Publishing template with id: ${id}`);
       addToast({
         title: 'Success',
         description: 'Template published successfully.',
@@ -219,7 +219,7 @@ export default function TemplatesPage() {
 
   const handleEdit = (id: string) => {
     // Logic to navigate to the edit page or open an edit modal
-    console.log(`Editing template with id: ${id}`);
+    // console.log(`Editing template with id: ${id}`);
   };
 
   const confirmDeleteTemplate = (id: string, folderPath: string) => {
