@@ -15,6 +15,31 @@ type TemplateInput = {
   global_text_color: string;
 };
 
+/* eslint-disable no-console */
+type LogMessage = {
+  message: string;
+  details?: unknown;
+  stack?: string;
+  cause?: unknown;
+  code?: string;
+  hint?: string;
+};
+
+// Logger implementation
+const logger = {
+  error: (message: string, error?: LogMessage) => {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error(message, error)
+    }
+    // In production, you might want to use a proper logging service
+  },
+  info: (message: string, data?: LogMessage) => {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(message, data)
+    }
+  }
+};
+
 export const createTemplate = async (input: TemplateInput) => {
   try {
     // Format folder name: convert to lowercase and replace spaces with hyphens
@@ -69,22 +94,34 @@ export const createTemplate = async (input: TemplateInput) => {
     };
 
     // Create a logger utility
+    /* eslint-disable no-console */
+    // Add this at the top of the file
+    type LogMessage = {
+      message: string;
+      details?: unknown;
+      stack?: string;
+      cause?: unknown;
+      code?: string;
+      hint?: string;
+    };
+    
+    // Update the logger implementation
     const logger = {
-      error: (message: string, error?: any) => {
+      error: (message: string, error?: LogMessage) => {
         if (process.env.NODE_ENV !== 'production') {
           console.error(message, error)
         }
         // In production, you might want to use a proper logging service
       },
-      info: (message: string, data?: any) => {
+      info: (message: string, data?: LogMessage) => {
         if (process.env.NODE_ENV !== 'production') {
           console.log(message, data)
         }
       }
-    }
+    };
 
     // Then replace all console.log/error calls with logger
-    logger.info('Attempting to insert template with data:', templateData)
+    logger.info('Attempting to insert template with data:', { message: 'Template Data', details: templateData });
 
     const { data, error } = await dashboardSupabase
       .from('templates')
@@ -93,12 +130,11 @@ export const createTemplate = async (input: TemplateInput) => {
       .single();
 
     if (error) {
-      console.error('Database insert error:', {
+      logger.error('Database insert error:', {
+        message: 'Database Error',
         code: error.code,
-        message: error.message,
         details: error.details,
-        hint: error.hint,
-        data: templateData
+        hint: error.hint
       });
       throw error;
     }
@@ -106,13 +142,16 @@ export const createTemplate = async (input: TemplateInput) => {
     return data;
   } catch (error) {
     if (error instanceof Error) {
-      console.error('Error creating template:', {
+      logger.error('Error creating template:', {
         message: error.message,
         stack: error.stack,
         cause: error.cause
       });
     } else {
-      console.error('Error creating template:', error);
+      logger.error('Error creating template:', {
+        message: 'Unknown error',
+        details: error
+      });
     }
     throw error;
   }
@@ -125,13 +164,19 @@ export const getTemplates = async () => {
       .select('id, name, thumbnail_path, is_public');
 
     if (error) {
-      console.error('Error fetching templates:', error);
+      logger.error('Error fetching templates:', {
+        message: 'Database Error',
+        details: error
+      });
       throw error;
     }
 
     return data;
   } catch (error) {
-    console.error('Error in getTemplates:', error);
+    logger.error('Error in getTemplates:', {
+      message: 'Unknown error',
+      details: error
+    });
     throw error;
   }
 };
@@ -143,64 +188,74 @@ export const deleteTemplate = async (id: string, folderPath: string) => {
       throw new Error('Storage bucket name not found in environment variables.');
     }
 
-    // Extract the folder name from the file path
     const folderName = folderPath.split('/')[0];
-    console.log('Attempting to delete folder:', folderName);
+    logger.info('Attempting to delete folder:', { message: folderName });
 
-    // List all files in the folder
     const { data: files, error: listError } = await dashboardSupabase
       .storage
       .from(storageBucket)
       .list(folderName);
 
     if (listError) {
-      console.error('Error listing files in folder:', listError);
+      logger.error('Error listing files in folder:', {
+        message: 'List Error',
+        details: listError
+      });
       throw listError;
     }
 
     if (files && files.length > 0) {
       const filePaths = files.map(file => `${folderName}/${file.name}`);
-      console.log('Files to delete:', filePaths);
+      logger.info('Files to delete:', { message: 'File Paths', details: filePaths });
 
-      // Delete all files in the folder
       const { error: deleteFilesError } = await dashboardSupabase
         .storage
         .from(storageBucket)
         .remove(filePaths);
 
       if (deleteFilesError) {
-        console.error('Error deleting files in folder:', deleteFilesError);
+        logger.error('Error deleting files in folder:', {
+          message: 'Delete Files Error',
+          details: deleteFilesError
+        });
         throw deleteFilesError;
       }
     } else {
-      console.log('No files found in folder to delete.');
+      logger.info('No files found in folder to delete.', { message: 'Empty Folder' });
     }
 
-    // Attempt to delete the folder itself
     const { error: deleteFolderError } = await dashboardSupabase
       .storage
       .from(storageBucket)
       .remove([folderName]);
 
     if (deleteFolderError) {
-      console.error('Error deleting folder:', deleteFolderError);
+      logger.error('Error deleting folder:', {
+        message: 'Delete Folder Error',
+        details: deleteFolderError
+      });
       throw deleteFolderError;
     } else {
-      console.log('Folder deleted successfully:', folderName);
+      logger.info('Folder deleted successfully:', { message: folderName });
     }
 
-    // Delete the template record from the database
     const { error: dbError } = await dashboardSupabase
       .from('templates')
       .delete()
       .eq('id', id);
 
     if (dbError) {
-      console.error('Error deleting template from database:', dbError);
+      logger.error('Error deleting template from database:', {
+        message: 'Database Error',
+        details: dbError
+      });
       throw dbError;
     }
   } catch (error) {
-    console.error('Error in deleteTemplate:', error);
+    logger.error('Error in deleteTemplate:', {
+      message: 'Unknown error',
+      details: error
+    });
     throw error;
   }
 };
