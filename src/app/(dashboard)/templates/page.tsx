@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { createTemplate, getTemplates, deleteTemplate } from '@/lib/templates';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast-provider';
 
 export default function TemplatesPage() {
@@ -506,6 +506,7 @@ export default function TemplatesPage() {
                 onChange={handleInputChange}
                 className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 focus:border-blue-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700" 
                 placeholder="Add tags separated by commas"
+                required
               />
             </div>
 
@@ -555,13 +556,30 @@ export default function TemplatesPage() {
 
             {/* Submit Button */}
             <div className="pt-4">
-              <button
-                type="button"
-                className="w-full rounded-lg bg-blue-500 px-4 py-2.5 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                onClick={() => setIsDialogOpen(true)}
-              >
-                Create Template
-              </button>
+              {/* Dialog Wrapper */}
+              <Dialog>
+                <DialogTrigger asChild>
+                  <button
+                    type="button"
+                    className="w-full rounded-lg bg-blue-500 px-4 py-2.5 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  >
+                    Create Template
+                  </button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create a New Template</DialogTitle>
+                  </DialogHeader>
+                  <form>
+                    {/* Form content here */}
+                  </form>
+                  <DialogFooter>
+                    <button type="submit" className="bg-blue-500 text-white px-4 py-2 rounded">
+                      Submit
+                    </button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           </form>
         </div>
