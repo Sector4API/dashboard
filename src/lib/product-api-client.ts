@@ -81,8 +81,7 @@ class ProductApiClient {
 
       return { success: true, message: 'Product uploaded successfully', product: productData[0], imageUrl: urlData.publicUrl };
     } catch (error) {
-      console.error('Error uploading product image:', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 
@@ -148,7 +147,7 @@ class ProductApiClient {
             .remove([existingProduct.image_path]);
 
           if (deleteError) {
-            console.error('Error deleting old image:', deleteError);
+            throw deleteError;
           }
         }
       }
@@ -178,9 +177,8 @@ class ProductApiClient {
         imageUrl,
         updatedFields: Object.keys(updateData),
       };
-    } catch (error: any) {
-      console.error('Error updating product:', error);
-      return { success: false, error: error.message };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 
@@ -210,14 +208,13 @@ class ProductApiClient {
           .remove([imagePath]);
 
         if (storageError) {
-          console.error('Error deleting image from storage:', storageError);
+          throw storageError;
         }
       }
 
       return { success: true, message: `Product with ID ${productId} and its associated image were successfully deleted`, deletedProduct: existingProduct };
-    } catch (error: any) {
-      console.error('Error deleting product:', error);
-      return { success: false, error: error.message };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 
@@ -246,9 +243,8 @@ class ProductApiClient {
       } else {
         return { found: false, message: `Product with tag "${query}" not found in the database.` };
       }
-    } catch (error: any) {
-      console.error('Error searching by tag:', error);
-      return { found: false, error: error.message };
+    } catch (error) {
+      return { found: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 
@@ -277,9 +273,8 @@ class ProductApiClient {
       } else {
         return { found: false, message: `Product with name "${query}" not found in the database.` };
       }
-    } catch (error: any) {
-      console.error('Error searching by name:', error);
-      return { found: false, error: error.message };
+    } catch (error) {
+      return { found: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 
@@ -305,9 +300,8 @@ class ProductApiClient {
       );
 
       return { products: productsWithUrls, total: count ?? 0 };
-    } catch (error: any) {
-      console.error('Error getting all products:', error);
-      throw error;
+    } catch (error) {
+      throw error instanceof Error ? error : new Error('Unknown error');
     }
   }
 
@@ -327,9 +321,8 @@ class ProductApiClient {
         ...data,
         imageUrl: urlData.publicUrl,
       };
-    } catch (error: any) {
-      console.error(`Error getting product with ID ${id}:`, error);
-      throw error;
+    } catch (error) {
+      throw error instanceof Error ? error : new Error('Unknown error');
     }
   }
 }

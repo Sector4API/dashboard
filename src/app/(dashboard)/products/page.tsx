@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useState } from 'react';
+import Image from 'next/image';
 
 interface Product {
   id: number;
@@ -50,9 +51,11 @@ const ProductsPage = () => {
             className="bg-gradient-to-br from-blue-50 to-white rounded-2xl shadow-xl p-6 flex flex-col items-center hover:scale-105 hover:shadow-2xl transition-all duration-300 border border-blue-100 group relative overflow-hidden"
           >
             <div className="w-full h-40 flex items-center justify-center mb-4 rounded-lg overflow-hidden bg-gradient-to-tr from-blue-100 to-blue-200">
-              <img
+              <Image
                 src={product.imageUrl}
                 alt={product.product_name}
+                width={320}
+                height={160}
                 className="object-contain h-full max-h-40 w-auto group-hover:scale-110 transition-transform duration-300"
                 loading="lazy"
               />
