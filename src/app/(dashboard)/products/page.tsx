@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
+import ProductApiClient from '@/lib/product-api-client';
 
 interface Product {
   id: number;
@@ -17,6 +18,40 @@ const ProductsPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+
+  const handleDelete = async (productId: number) => {
+    if (!confirm('Are you sure you want to delete this product?')) return;
+    const client = new ProductApiClient({
+      supabaseUrl: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL!,
+      supabaseKey: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY!,
+      storageBucket: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET!,
+    });
+    const result = await client.deleteProduct(productId);
+    if (result.success) {
+      setProducts((prev) => prev.filter((p) => p.id !== productId));
+      setTotal((prev) => prev - 1);
+      alert('Product deleted successfully!');
+    } else {
+      alert(result.error || 'Failed to delete product');
+    }
+  };
+
+  const handleUpdate = async (product: Product) => {
+    const productName = prompt('Enter new product name:', product.product_name) || product.product_name;
+    const productTag = prompt('Enter new product tag:', product.product_tag) || product.product_tag;
+    const client = new ProductApiClient({
+      supabaseUrl: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL!,
+      supabaseKey: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY!,
+      storageBucket: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET!,
+    });
+    const result = await client.updateProduct(product.id, { productName, productTag });
+    if (result.success) {
+      setProducts((prev) => prev.map((p) => p.id === product.id ? { ...p, product_name: productName, product_tag: productTag } : p));
+      alert('Product updated successfully!');
+    } else {
+      alert(result.error || 'Failed to update product');
+    }
+  };
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -67,6 +102,20 @@ const ProductsPage = () => {
               {product.product_tag}
             </p>
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 to-blue-200 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            <div className="flex gap-2 mt-2">
+              <button
+                className="px-3 py-1 rounded bg-blue-500 text-white hover:bg-blue-600 text-xs"
+                onClick={() => handleUpdate(product)}
+              >
+                Update
+              </button>
+              <button
+                className="px-3 py-1 rounded bg-red-500 text-white hover:bg-red-600 text-xs"
+                onClick={() => handleDelete(product.id)}
+              >
+                Delete
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -78,7 +127,6 @@ const ProductsPage = () => {
         >
           &lt;
         </button>
-        {/* Pagination numbers with ellipsis */}
         {(() => {
           const pageNumbers = [];
           const maxPagesToShow = 7;
