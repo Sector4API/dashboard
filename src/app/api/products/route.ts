@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     const { products, total } = await client.getAllProducts(page, pageSize);
 
     return NextResponse.json({ products, total });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Failed to fetch products' }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ error: (error instanceof Error ? error.message : String(error)) || 'Failed to fetch products' }, { status: 500 });
   }
 }

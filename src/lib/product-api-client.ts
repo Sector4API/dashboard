@@ -80,9 +80,9 @@ class ProductApiClient {
       const { data: urlData } = this.supabase.storage.from(this.storageBucket).getPublicUrl(fileName);
 
       return { success: true, message: 'Product uploaded successfully', product: productData[0], imageUrl: urlData.publicUrl };
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error uploading product image:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
 

@@ -26,8 +26,8 @@ const ProductsPage = () => {
         const data = await res.json();
         setProducts(data.products);
         setTotal(data.total);
-      } catch (err: any) {
-        setError(err.message || 'Failed to fetch products');
+      } catch (err) {
+        setError((err instanceof Error ? err.message : String(err)) || 'Failed to fetch products');
       } finally {
         setLoading(false);
       }
