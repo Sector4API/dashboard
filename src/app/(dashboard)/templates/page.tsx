@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Image from 'next/image';
 import { createTemplate, getTemplates, deleteTemplate } from '@/lib/templates';
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast-provider';
@@ -19,8 +20,7 @@ export default function TemplatesPage() {
       try {
         const data = await getTemplates();
         setTemplates(data || []);
-      } catch (error) {
-        // console.error('Error fetching templates:', error);
+      } catch {
         addToast({
           title: 'Error',
           description: 'Failed to fetch templates.',
@@ -154,8 +154,7 @@ export default function TemplatesPage() {
         }
       });
       setSeasonalBadges([1, 2, 3]);
-    } catch (error) {
-      // console.error('Error creating template:', error);
+    } catch {
       addToast({
         title: 'Error',
         description: 'Failed to create template. Please try again.',
@@ -188,8 +187,7 @@ export default function TemplatesPage() {
         description: 'Template deleted successfully.',
         variant: 'success',
       });
-    } catch (error) {
-      // console.error('Error deleting template:', error);
+    } catch {
       addToast({
         title: 'Error',
         description: 'Failed to delete template.',
@@ -200,15 +198,12 @@ export default function TemplatesPage() {
 
   const handlePublish = async (id: string) => {
     try {
-      // Logic to publish the template
-      // console.log(`Publishing template with id: ${id}`);
       addToast({
         title: 'Success',
         description: 'Template published successfully.',
         variant: 'success',
       });
-    } catch (error) {
-      // console.error('Error publishing template:', error);
+    } catch {
       addToast({
         title: 'Error',
         description: 'Failed to publish template.',
@@ -217,9 +212,8 @@ export default function TemplatesPage() {
     }
   };
 
-  const handleEdit = (id: string) => {
+  const handleEdit = () => {
     // Logic to navigate to the edit page or open an edit modal
-    // console.log(`Editing template with id: ${id}`);
   };
 
   const confirmDeleteTemplate = (id: string, folderPath: string) => {
@@ -296,9 +290,11 @@ export default function TemplatesPage() {
                 <div className="flex items-center gap-4">
                   <div className="h-10 w-10 rounded overflow-hidden">
                     {template.thumbnail_path ? (
-                      <img
+                      <Image
                         src={`${process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_URL}/storage/v1/object/public/${process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET}/${template.thumbnail_path}`}
                         alt={template.name}
+                        width={40}
+                        height={40}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -319,7 +315,7 @@ export default function TemplatesPage() {
                   </button>
                   <button
                     className="rounded bg-blue-500 px-3 py-1 text-white hover:bg-blue-600"
-                    onClick={() => handleEdit(template.id)}
+                    onClick={() => handleEdit()}
                   >
                     Edit
                   </button>
@@ -386,9 +382,11 @@ export default function TemplatesPage() {
                 <div className="flex w-full items-center justify-center relative">
                   <label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600">
                     {files.previews.headerImage && (
-                      <img
+                      <Image
                         src={files.previews.headerImage}
                         alt="Header Preview"
+                        width={128}
+                        height={128}
                         className="absolute inset-0 h-full w-full object-cover rounded-lg"
                       />
                     )}
@@ -414,9 +412,11 @@ export default function TemplatesPage() {
                 <div className="flex w-full items-center justify-center relative">
                   <label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600">
                     {files.previews.thumbnail && (
-                      <img
+                      <Image
                         src={files.previews.thumbnail}
                         alt="Thumbnail Preview"
+                        width={128}
+                        height={128}
                         className="absolute inset-0 h-full w-full object-cover rounded-lg"
                       />
                     )}
@@ -463,9 +463,11 @@ export default function TemplatesPage() {
                     <div className="flex-1 relative">
                       <label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600">
                         {files.previews.seasonalBadges[index] && (
-                          <img
+                          <Image
                             src={files.previews.seasonalBadges[index]}
                             alt={`Seasonal Badge Preview ${index + 1}`}
+                            width={128}
+                            height={128}
                             className="absolute inset-0 h-full w-full object-cover rounded-lg"
                           />
                         )}

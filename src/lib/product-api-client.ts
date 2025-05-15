@@ -33,7 +33,6 @@ class ProductApiClient {
       let fileName: string;
       let fileData: File | Blob | Buffer;
       let productName: string;
-      let productTag: string;
 
       if (this.isNode && typeof fileInput === 'string') {
         const fs = await import('fs');
@@ -62,9 +61,9 @@ class ProductApiClient {
         fileData = fileInput;
       }
 
-      productTag = options.customProductTag || productName;
+      const productTag: string = options.customProductTag || productName;
 
-      const { data: uploadData, error: uploadError } = await this.supabase.storage
+      const { error: uploadError } = await this.supabase.storage
         .from(this.storageBucket)
         .upload(fileName, fileData, { cacheControl: '3600', upsert: true });
 
@@ -96,7 +95,7 @@ class ProductApiClient {
       if (fetchError) throw fetchError;
       if (!existingProduct) throw new Error(`Product with ID ${productId} not found`);
 
-      const updateData: Record<string, any> = {};
+      const updateData: Record<string, unknown> = {};
 
       if (updates.productName) {
         updateData.product_name = updates.productName;
@@ -130,7 +129,7 @@ class ProductApiClient {
           fileData = updates.fileInput;
         }
 
-        const { data: uploadData, error: uploadError } = await this.supabase.storage
+        const { error: uploadError } = await this.supabase.storage
           .from(this.storageBucket)
           .upload(fileName, fileData, { cacheControl: '3600', upsert: true });
 
