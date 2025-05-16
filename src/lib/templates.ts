@@ -11,6 +11,7 @@ type TemplateInput = {
   isPublic?: boolean;
   terms_section_background_color: string;
   products_section_background_color: string;
+  product_section_background_color: string; // Renamed
   product_card_background_color: string;
   global_text_color: string;
 };
@@ -42,32 +43,28 @@ const logger = {
 
 export const createTemplate = async (input: TemplateInput) => {
   try {
-    // Format folder name: convert to lowercase and replace spaces with hyphens
     const folderName = input.name.toLowerCase().replace(/\s+/g, '-');
-      const storageBucket = process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET;
+    const storageBucket = process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET;
     if (!storageBucket) {
       throw new Error('Storage bucket name not found in environment variables. Please check NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET in .env file');
     }
 
     // Upload header image
-    const headerExt = input.headerImage.name.split('.').pop();
-    const headerPath = `${folderName}/header.${headerExt}`;
+    const headerPath = `${folderName}/${input.headerImage.name}`;
     await dashboardSupabase.storage
       .from(storageBucket)
       .upload(headerPath, input.headerImage);
 
     // Upload thumbnail
-    const thumbExt = input.thumbnail.name.split('.').pop();
-    const thumbnailPath = `${folderName}/thumb.${thumbExt}`;
+    const thumbnailPath = `${folderName}/${input.thumbnail.name}`;
     await dashboardSupabase.storage
       .from(storageBucket)
       .upload(thumbnailPath, input.thumbnail);
 
     // Upload seasonal badges
     const badgePaths = await Promise.all(
-      input.seasonalBadges.map(async (badge, index) => {
-        const badgeExt = badge.name.split('.').pop();
-        const badgePath = `${folderName}/badge${index + 1}.${badgeExt}`;
+      input.seasonalBadges.map(async (badge) => {
+        const badgePath = `${folderName}/${badge.name}`;
         await dashboardSupabase.storage
           .from(storageBucket)
           .upload(badgePath, badge);
@@ -89,6 +86,7 @@ export const createTemplate = async (input: TemplateInput) => {
       updated_at: new Date().toISOString(),
       terms_section_background_color: input.terms_section_background_color,
       products_section_background_color: input.products_section_background_color,
+      product_section_background_color: input.product_section_background_color, // Renamed
       product_card_background_color: input.product_card_background_color,
       global_text_color: input.global_text_color
     };
@@ -254,6 +252,75 @@ export const deleteTemplate = async (id: string, folderPath: string) => {
   } catch (error) {
     logger.error('Error in deleteTemplate:', {
       message: 'Unknown error',
+      details: error
+    });
+    throw error;
+  }
+};
+
+export const updateTemplateAssets = async (templateId: string, files: {
+  headerImage: File | null;
+  thumbnail: File | null;
+  seasonalBadges: File[];
+}) => {
+  try {
+    const storageBucket = process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET;
+    if (!storageBucket) {
+      throw new Error('Storage bucket name not found in environment variables.');
+    }
+
+    // Get the template's current folder name
+    const { data: template, error: templateError } = await dashboardSupabase
+      .from('templates')
+      .select('name')
+      .eq('id', templateId)
+      .single();
+
+    if (templateError) throw templateError;
+
+    const folderName = template.name.toLowerCase().replace(/\s+/g, '-');
+    let headerImagePath = null;
+    let thumbnailPath = null;
+    let seasonalBadgePaths: string[] = [];
+
+    // Update header image if provided
+    if (files.headerImage) {
+      headerImagePath = `${folderName}/${files.headerImage.name}`;
+      await dashboardSupabase.storage
+        .from(storageBucket)
+        .upload(headerImagePath, files.headerImage, { upsert: true });
+    }
+
+    // Update thumbnail if provided
+    if (files.thumbnail) {
+      thumbnailPath = `${folderName}/${files.thumbnail.name}`;
+      await dashboardSupabase.storage
+        .from(storageBucket)
+        .upload(thumbnailPath, files.thumbnail, { upsert: true });
+    }
+
+    // Update seasonal badges if provided
+    if (files.seasonalBadges.length > 0) {
+      seasonalBadgePaths = await Promise.all(
+        files.seasonalBadges.map(async (badge) => {
+          const badgePath = `${folderName}/${badge.name}`;
+          await dashboardSupabase.storage
+            .from(storageBucket)
+            .upload(badgePath, badge, { upsert: true });
+          return badgePath;
+        })
+      );
+    }
+
+    // Only return the paths if new files were uploaded, otherwise return null for those fields
+    return {
+      headerImagePath: headerImagePath,
+      thumbnailPath: thumbnailPath,
+      seasonalBadgePaths: seasonalBadgePaths
+    };
+  } catch (error) {
+    logger.error('Error updating template assets:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
       details: error
     });
     throw error;

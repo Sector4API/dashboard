@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+
 interface ProductApiClientOptions {
   supabaseUrl: string;
   supabaseKey: string;
@@ -28,38 +29,22 @@ class ProductApiClient {
     this.isNode = typeof process !== 'undefined' && process.versions?.node != null;
   }
 
-  async uploadProductImage(fileInput: File | Blob | string, options: UploadOptions = {}) {
+  async uploadProductImage(fileInput: File | Blob, options: UploadOptions = {}) {
     try {
       let fileName: string;
-      let fileData: File | Blob | Buffer;
+      let fileData: File | Blob;
       let productName: string;
 
-      if (this.isNode && typeof fileInput === 'string') {
-        const fs = await import('fs');
-        const path = await import('path');
-
-        if (!fs.existsSync(fileInput)) {
-          throw new Error(`File not found: ${fileInput}`);
-        }
-
-        fileName = path.basename(fileInput);
-        const fileExtension = path.extname(fileName);
-        const fileNameWithoutExt = path.basename(fileName, fileExtension);
-
-        productName = options.customProductName || fileNameWithoutExt.replace(/[^a-zA-Z0-9]/g, ' ').trim();
-        fileData = fs.readFileSync(fileInput);
-      } else {
-        if (!(fileInput instanceof File || fileInput instanceof Blob)) {
-          throw new Error('In browser environments, fileInput must be a File or Blob object');
-        }
-
-        fileName = (fileInput as File).name || `upload_${Date.now()}`;
-        const lastDotIndex = fileName.lastIndexOf('.');
-        const fileNameWithoutExt = lastDotIndex !== -1 ? fileName.substring(0, lastDotIndex) : fileName;
-
-        productName = options.customProductName || fileNameWithoutExt.replace(/[^a-zA-Z0-9]/g, ' ').trim();
-        fileData = fileInput;
+      if (!(fileInput instanceof File || fileInput instanceof Blob)) {
+        throw new Error('fileInput must be a File or Blob object');
       }
+
+      fileName = (fileInput as File).name || `upload_${Date.now()}`;
+      const lastDotIndex = fileName.lastIndexOf('.');
+      const fileNameWithoutExt = lastDotIndex !== -1 ? fileName.substring(0, lastDotIndex) : fileName;
+
+      productName = options.customProductName || fileNameWithoutExt.replace(/[^a-zA-Z0-9]/g, ' ').trim();
+      fileData = fileInput;
 
       const productTag: string = options.customProductTag || productName;
 
@@ -84,7 +69,7 @@ class ProductApiClient {
     }
   }
 
-  async updateProduct(productId: number, updates: { productName?: string; productTag?: string; fileInput?: File | Blob | string } = {}) {
+  async updateProduct(productId: number | string, updates: { productName?: string; productTag?: string; fileInput?: File | Blob } = {}) {
     try {
       const { data: existingProduct, error: fetchError } = await this.supabase
         .from('products')
@@ -96,39 +81,28 @@ class ProductApiClient {
       if (!existingProduct) throw new Error(`Product with ID ${productId} not found`);
 
       const updateData: Record<string, unknown> = {};
-
       if (updates.productName) {
         updateData.product_name = updates.productName;
       }
-
       if (updates.productTag) {
         updateData.product_tag = updates.productTag;
       }
 
       let newImageUrl: string | null = null;
+      let oldImagePath: string | null = null;
+      
       if (updates.fileInput) {
         let fileName: string;
-        let fileData: File | Blob | Buffer;
+        let fileData: File | Blob;
 
-        if (this.isNode && typeof updates.fileInput === 'string') {
-          const fs = await import('fs');
-          const path = await import('path');
-
-          if (!fs.existsSync(updates.fileInput)) {
-            throw new Error(`File not found: ${updates.fileInput}`);
-          }
-
-          fileName = path.basename(updates.fileInput);
-          fileData = fs.readFileSync(updates.fileInput);
-        } else {
-          if (!(updates.fileInput instanceof File || updates.fileInput instanceof Blob)) {
-            throw new Error('In browser environments, fileInput must be a File or Blob object');
-          }
-
-          fileName = (updates.fileInput as File).name || `upload_${Date.now()}`;
-          fileData = updates.fileInput;
+        if (!(updates.fileInput instanceof File || updates.fileInput instanceof Blob)) {
+          throw new Error('fileInput must be a File or Blob object');
         }
 
+        fileName = (updates.fileInput as File).name || `upload_${Date.now()}`;
+        fileData = updates.fileInput;
+
+        // Upload new image
         const { error: uploadError } = await this.supabase.storage
           .from(this.storageBucket)
           .upload(fileName, fileData, { cacheControl: '3600', upsert: true });
@@ -138,23 +112,16 @@ class ProductApiClient {
         const { data: urlData } = this.supabase.storage.from(this.storageBucket).getPublicUrl(fileName);
         newImageUrl = urlData.publicUrl;
 
+        // Store the old image path for later deletion
+        oldImagePath = existingProduct.image_path;
         updateData.image_path = fileName;
-
-        if (existingProduct.image_path && existingProduct.image_path !== fileName) {
-          const { error: deleteError } = await this.supabase.storage
-            .from(this.storageBucket)
-            .remove([existingProduct.image_path]);
-
-          if (deleteError) {
-            throw deleteError;
-          }
-        }
       }
 
       if (Object.keys(updateData).length === 0) {
         return { success: false, message: 'No updates provided', product: existingProduct };
       }
 
+      // Update the database
       const { data: updatedProducts, error: updateError } = await this.supabase
         .from('products')
         .update(updateData)
@@ -164,6 +131,18 @@ class ProductApiClient {
       if (updateError) throw updateError;
       if (!updatedProducts || updatedProducts.length === 0) {
         throw new Error(`Product with ID ${productId} could not be updated`);
+      }
+
+      // Only delete the old image after successful database update
+      if (oldImagePath && oldImagePath !== updateData.image_path) {
+        const { error: deleteError } = await this.supabase.storage
+          .from(this.storageBucket)
+          .remove([oldImagePath]);
+
+        if (deleteError) {
+          console.warn(`Failed to delete old image: ${oldImagePath}`, deleteError);
+          // Don't throw error here, as the update was successful
+        }
       }
 
       const updatedProduct = updatedProducts[0];
@@ -181,8 +160,9 @@ class ProductApiClient {
     }
   }
 
-  async deleteProduct(productId: number) {
+  async deleteProduct(productId: number | string) {
     try {
+      // Fetch the product to get the image path
       const { data: existingProduct, error: fetchError } = await this.supabase
         .from('products')
         .select('*')
@@ -194,6 +174,7 @@ class ProductApiClient {
 
       const imagePath = existingProduct.image_path;
 
+      // Delete the product from the database
       const { error: deleteError } = await this.supabase
         .from('products')
         .delete()
@@ -201,6 +182,7 @@ class ProductApiClient {
 
       if (deleteError) throw deleteError;
 
+      // Delete the image from the storage bucket
       if (imagePath) {
         const { error: storageError } = await this.supabase.storage
           .from(this.storageBucket)
@@ -211,7 +193,7 @@ class ProductApiClient {
         }
       }
 
-      return { success: true, message: `Product with ID ${productId} and its associated image were successfully deleted`, deletedProduct: existingProduct };
+      return { success: true, message: `Product with ID ${productId} and its associated image were successfully deleted` };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
@@ -284,10 +266,12 @@ class ProductApiClient {
       const { data, error, count } = await this.supabase
         .from('products')
         .select('*', { count: 'exact' })
+        .order('product_name', { ascending: true })
         .range(from, to);
 
       if (error) throw error;
 
+      // Custom sort: alphabets first, then digits
       const productsWithUrls = await Promise.all(
         (data || []).map(async (product) => {
           const { data: urlData } = this.supabase.storage.from(this.storageBucket).getPublicUrl(product.image_path);
@@ -297,6 +281,15 @@ class ProductApiClient {
           };
         })
       );
+
+      // Sort: alphabetic names first, then digit names
+      productsWithUrls.sort((a, b) => {
+        const aAlpha = /^[A-Za-z]/.test(a.product_name.trim());
+        const bAlpha = /^[A-Za-z]/.test(b.product_name.trim());
+        if (aAlpha && !bAlpha) return -1;
+        if (!aAlpha && bAlpha) return 1;
+        return a.product_name.localeCompare(b.product_name, undefined, { sensitivity: 'base' });
+      });
 
       return { products: productsWithUrls, total: count ?? 0 };
     } catch (error) {

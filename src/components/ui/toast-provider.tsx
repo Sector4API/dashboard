@@ -2,9 +2,8 @@
 
 import * as React from "react"
 import { Toast, ToastTitle, ToastDescription } from "@/components/ui/toast"
-import { ToastProvider as ShadCNToastProvider } from "@/components/ui/toast"
 import {
-  ToastProvider as RadixToastProvider,
+  Provider as RadixToastProvider,
   ToastViewport,
 } from "@radix-ui/react-toast";
 
@@ -34,7 +33,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = React.useState<ToastType[]>([]);
 
   const addToast = React.useCallback((toast: Omit<ToastType, "id">) => {
-    const id = Math.random().toString(36).substring(2, 9);
+    const id = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const newToast = { ...toast, id };
     setToasts((prev) => [...prev, newToast]);
 
@@ -53,7 +52,20 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={{ toasts, addToast, removeToast }}>
       <RadixToastProvider swipeDirection="right">
         {children}
-        <ToastViewport className="fixed bottom-4 right-4 z-50 flex max-w-md flex-col gap-2 p-4" />
+        <ToastViewport className="fixed top-4 right-4 z-50 flex max-w-md flex-col gap-2 p-4">
+          {toasts.map((toast) => (
+            <Toast
+              key={toast.id}
+              variant={toast.variant}
+              onClose={() => removeToast(toast.id)}
+            >
+              {toast.title && <ToastTitle>{toast.title}</ToastTitle>}
+              {toast.description && (
+                <ToastDescription>{toast.description}</ToastDescription>
+              )}
+            </Toast>
+          ))}
+        </ToastViewport>
       </RadixToastProvider>
     </ToastContext.Provider>
   );

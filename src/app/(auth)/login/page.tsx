@@ -2,31 +2,43 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Spinner } from '@/components/ui/spinner';
 
 const LoginPage = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoginLoading(true);
 
-    const envUsername = process.env.NEXT_PUBLIC_LOGIN_USERNAME;
-    const envPassword = process.env.NEXT_PUBLIC_LOGIN_PASSWORD;
+    try {
+      const envUsername = process.env.NEXT_PUBLIC_LOGIN_USERNAME;
+      const envPassword = process.env.NEXT_PUBLIC_LOGIN_PASSWORD;
 
-    if (username === envUsername && password === envPassword) {
-      document.cookie = 'isAuthenticated=true; path=/';
-      localStorage.setItem('isAuthenticated', 'true');
-      router.push('/');
-      router.refresh();
-    } else {
-      setError('Invalid username or password');
+      if (username === envUsername && password === envPassword) {
+        document.cookie = 'isAuthenticated=true; path=/';
+        localStorage.setItem('isAuthenticated', 'true');
+        router.push('/');
+        router.refresh();
+      } else {
+        setError('Invalid username or password');
+      }
+    } finally {
+      setLoginLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900">
+      {loginLoading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Spinner className="w-12 h-12 text-white" />
+        </div>
+      )}
       <div className="bg-white dark:bg-slate-800 p-8 rounded-lg shadow-lg w-96">
         <h1 className="text-2xl font-bold mb-6 text-slate-900 dark:text-white">Login to Dashboard</h1>
         {error && <p className="text-red-500 text-sm mb-4">{error}</p>}

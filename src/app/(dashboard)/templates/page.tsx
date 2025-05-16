@@ -1,36 +1,87 @@
 'use client';
 
-import React from 'react';
+import React, { useRef, useCallback } from 'react';
 import Image from 'next/image';
-import { createTemplate, getTemplates, deleteTemplate } from '@/lib/templates';
+import { createTemplate, getTemplates, deleteTemplate, updateTemplateAssets } from '@/lib/templates';
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast-provider';
+import { dashboardSupabase } from '@/lib/supabase';
 
 export default function TemplatesPage() {
   const { addToast } = useToast();
-  const [templates, setTemplates] = React.useState<{ id: string; name: string; thumbnail_path: string; is_public: boolean }[]>([]);
+  const [templates, setTemplates] = React.useState<{ 
+    id: string; 
+    name: string; 
+    thumbnail_path: string; 
+    is_public: boolean; 
+    description?: string; 
+    category?: string; 
+    tags?: string[]; 
+    terms_section_background_color?: string; 
+    product_section_background_color?: string; 
+    product_card_background_color?: string; 
+    global_text_color?: string; 
+    headerImage?: string; 
+    seasonalBadges?: string[]; 
+  }[]>([]);
   const [seasonalBadges, setSeasonalBadges] = React.useState([1, 2, 3]);
   const maxFileSize = 5 * 1024 * 1024; // 5MB in bytes
   const [isDialogOpen, setIsDialogOpen] = React.useState(false); // State for confirmation dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const [templateToDelete, setTemplateToDelete] = React.useState<{ id: string; folderPath: string } | null>(null);
+  const [loading, setLoading] = React.useState(false); // State for loading screen
+  const [page, setPage] = React.useState(1);
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
+  const [hasMoreTemplates, setHasMoreTemplates] = React.useState(true); // State to track if more templates are available
+  const observer = useRef<IntersectionObserver | null>(null);
+  // Add this state near other state declarations
+  const [isEditMode, setIsEditMode] = React.useState(false);
+  const [editingTemplateId, setEditingTemplateId] = React.useState<string | null>(null);
+  
+  // Update the fetchTemplates function to ensure the spinner is completely removed when no more templates are available
+  const fetchTemplates = async (page: number) => {
+    setIsLoadingMore(true); // Show loading spinner for the template list
+    try {
+      const { data, error } = await dashboardSupabase
+        .from('templates')
+        .select('*')
+        .range((page - 1) * 10, page * 10 - 1); // Fetch 10 templates per page
+
+      if (error) {
+        // console.error('Error fetching templates:', error);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        setHasMoreTemplates(false); // Indicate no more templates are available
+        return;
+      }
+
+      setTemplates((prev) => (page === 1 ? data : [...prev, ...data]));
+    } catch (err) {
+      // console.error('Unexpected error:', err);
+    } finally {
+      setIsLoadingMore(false); // Hide loading spinner
+    }
+  };
+
+  const lastTemplateRef = useCallback(
+    (node: HTMLElement | null) => {
+      if (isLoadingMore || !hasMoreTemplates) return; // Stop observing if no more templates
+      if (observer.current) observer.current.disconnect();
+      observer.current = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting) {
+          setPage((prevPage) => prevPage + 1);
+        }
+      });
+      if (node) observer.current.observe(node);
+    },
+    [isLoadingMore, hasMoreTemplates]
+  );
 
   React.useEffect(() => {
-    const fetchTemplates = async () => {
-      try {
-        const data = await getTemplates();
-        setTemplates(data || []);
-      } catch {
-        addToast({
-          title: 'Error',
-          description: 'Failed to fetch templates.',
-          variant: 'error',
-        });
-      }
-    };
-
-    fetchTemplates();
-  }, [addToast]);
+    fetchTemplates(page);
+  }, [page]);
 
   // Add form state
   const [formData, setFormData] = React.useState({
@@ -39,7 +90,7 @@ export default function TemplatesPage() {
     category: '',
     tags: '',
     terms_section_background_color: '#ffffff',
-    products_section_background_color: '#ffffff',
+    product_section_background_color: '#ffffff', // Renamed
     product_card_background_color: '#ffffff',
     global_text_color: '#000000'
   });
@@ -98,50 +149,191 @@ export default function TemplatesPage() {
   };
 
   const handleSubmit = async () => {
-    if (!files.headerImage || !files.thumbnail) {
-      addToast({
-        title: 'Error',
-        description: 'Please upload header image and thumbnail',
-        variant: 'error',
-      });
-      return;
-    }
-
-    const seasonalBadgeFiles = files.seasonalBadges.filter(Boolean);
-    if (seasonalBadgeFiles.length === 0) {
-      addToast({
-        title: 'Error',
-        description: 'Please upload at least one seasonal badge',
-        variant: 'error',
-      });
-      return;
-    }
-
+    setIsDialogOpen(false);
+    setLoading(true);
     try {
-      await createTemplate({
-        ...formData,
-        tags: formData.tags.split(',').map(tag => tag.trim()),
-        headerImage: files.headerImage,
-        thumbnail: files.thumbnail,
-        seasonalBadges: seasonalBadgeFiles
-      });
-
+      // Only check for duplicate names when creating a new template
+      if (!isEditMode) {
+        // console.log('Checking for duplicate template name:', formData.name);
+        const { data: existingTemplate, error } = await dashboardSupabase
+          .from('templates')
+          .select('id')
+          .eq('name', formData.name)
+          .maybeSingle();
+  
+        if (error) {
+          // console.error('Error checking template name:', error);
+          addToast({
+            title: 'Error',
+            description: 'An error occurred while checking the template name.',
+            variant: 'error',
+          });
+          return;
+        }
+  
+        if (existingTemplate) {
+          // console.log('Duplicate template found:', existingTemplate);
+          addToast({
+            title: 'Error',
+            description: 'A template with this name already exists. Please enter a new name.',
+            variant: 'error',
+          });
+          return;
+        }
+      }
+  
+      // Proceed with template submission
+      // console.log('handleSubmit triggered'); // Debugging log
+      if (!files.headerImage || !files.thumbnail) {
+        addToast({
+          title: 'Error',
+          description: 'Please upload header image and thumbnail',
+          variant: 'error',
+        });
+        setLoading(false); // Hide loading screen
+        return;
+      }
+  
+      const seasonalBadgeFiles = files.seasonalBadges.filter(Boolean);
+      if (seasonalBadgeFiles.length === 0) {
+        addToast({
+          title: 'Error',
+          description: 'Please upload at least one seasonal badge',
+          variant: 'error',
+        });
+        setLoading(false); // Hide loading screen
+        return;
+      }
+  
+      try {
+        // console.log('Calling createTemplate with formData:', formData); // Debugging log
+        await createTemplate({
+                  ...formData,
+                  tags: formData.tags.split(',').map(tag => tag.trim()),
+                  headerImage: files.headerImage,
+                  thumbnail: files.thumbnail,
+                  seasonalBadges: seasonalBadgeFiles,
+                  products_section_background_color: formData.product_section_background_color,
+                  product_card_background_color: formData.product_card_background_color,
+                });
+  
+        addToast({
+          title: 'Success',
+          description: 'Template created successfully!',
+          variant: 'success',
+        });
+  
+        // Reset form
+        setFormData({
+          name: '',
+          description: '',
+          category: '',
+          tags: '',
+          terms_section_background_color: '#ffffff',
+          product_section_background_color: '#ffffff',
+          product_card_background_color: '#ffffff',
+          global_text_color: '#000000'
+        });
+        setFiles({
+          headerImage: null,
+          thumbnail: null,
+          seasonalBadges: [],
+          previews: {
+            headerImage: '',
+            thumbnail: '',
+            seasonalBadges: []
+          }
+        });
+        setSeasonalBadges([1, 2, 3]);
+  
+        // Fetch updated templates
+        const updatedTemplates = await getTemplates();
+        setTemplates(updatedTemplates || []);
+      } catch (error) {
+        // console.error('Error during template creation:', error); // Debugging log
+        addToast({
+          title: 'Error',
+          description: 'Failed to create template',
+          variant: 'error',
+        });
+      } finally {
+        setLoading(false); // Hide loading screen
+      }
+    } catch (error) {
+      // console.error('Unexpected error:', error);
       addToast({
-        title: 'Success',
-        description: 'Template created successfully!',
-        variant: 'success',
+        title: 'Error',
+        description: 'An unexpected error occurred.',
+        variant: 'error',
       });
+    } finally {
+      setLoading(false);
+    }
+  };
+  const handleUpdate = async () => {
+    if (!editingTemplateId) return;
+    setLoading(true);
+    try {
+      // Fetch the existing template data to get the current seasonal badge paths
+      const { data: existingTemplate, error: fetchError } = await dashboardSupabase
+        .from('templates')
+        .select('seasonal_badge_paths')
+        .eq('id', editingTemplateId)
+        .single();
 
-      // Reset form
+      if (fetchError) throw fetchError;
+
+      const existingBadgePaths = existingTemplate?.seasonal_badge_paths || [];
+
+      // Handle file updates if new files are selected
+      let updatedBadgePaths = [...existingBadgePaths];
+      if (files.seasonalBadges.length > 0) {
+        const newBadgePaths = await Promise.all(
+          files.seasonalBadges.filter(Boolean).map(async (badge) => {
+            const updatedPaths = await updateTemplateAssets(editingTemplateId, {
+              headerImage: null,
+              thumbnail: null,
+              seasonalBadges: [badge],
+            });
+            return updatedPaths.seasonalBadgePaths[0];
+          })
+        );
+        updatedBadgePaths = [...existingBadgePaths, ...newBadgePaths];
+      }
+
+      // Prepare the payload for the update
+      const updatePayload = {
+        description: formData.description,
+        category: formData.category,
+        tags: formData.tags.split(',').map(tag => tag.trim()),
+        terms_section_background_color: formData.terms_section_background_color,
+        product_section_background_color: formData.product_section_background_color, // Renamed
+        product_card_background_color: formData.product_card_background_color,
+        global_text_color: formData.global_text_color,
+        seasonal_badge_paths: updatedBadgePaths,
+      };
+
+      // Log the payload for debugging
+      // console.log('Payload for update:', updatePayload);
+
+      // Update template data in the database
+      const { error: updateError } = await dashboardSupabase
+        .from('templates')
+        .update(updatePayload)
+        .eq('id', editingTemplateId);
+
+      if (updateError) throw updateError;
+
+      // Reset form and states
       setFormData({
         name: '',
         description: '',
         category: '',
         tags: '',
         terms_section_background_color: '#ffffff',
-        products_section_background_color: '#ffffff',
+        product_section_background_color: '#ffffff',
         product_card_background_color: '#ffffff',
-        global_text_color: '#000000'
+        global_text_color: '#000000',
       });
       setFiles({
         headerImage: null,
@@ -150,22 +342,41 @@ export default function TemplatesPage() {
         previews: {
           headerImage: '',
           thumbnail: '',
-          seasonalBadges: []
-        }
+          seasonalBadges: [],
+        },
       });
-      setSeasonalBadges([1, 2, 3]);
-    } catch {
+      setIsEditMode(false);
+      setEditingTemplateId(null);
+
+      // Refresh templates list
+      const updatedTemplates = await getTemplates();
+      setTemplates(updatedTemplates || []);
+
+      addToast({
+        title: 'Success',
+        description: 'Template updated successfully!',
+        variant: 'success',
+      });
+    } catch (error) {
+      // console.error('Error updating template:', error instanceof Error ? error.message : error);
       addToast({
         title: 'Error',
-        description: 'Failed to create template. Please try again.',
+        description: 'Failed to update template. Please check the console for more details.',
         variant: 'error',
       });
+    } finally {
+      setLoading(false);
     }
   };
 
+  // In your form's submit handler or dialog confirmation
   const handleConfirm = async () => {
-    setIsDialogOpen(false); // Close the dialog
-    await handleSubmit(); // Proceed with form submission
+    setIsDialogOpen(false);
+    if (isEditMode) {
+      await handleUpdate();
+    } else {
+      await handleSubmit();
+    }
   };
 
   const addSeasonalBadge = () => {
@@ -179,38 +390,60 @@ export default function TemplatesPage() {
   };
 
   const handleDelete = async (id: string, folderPath: string) => {
+    setLoading(true); // Show loading screen
     try {
       await deleteTemplate(id, folderPath);
-      setTemplates(prev => prev.filter(template => template.id !== id));
+
+      // Force refresh templates list
+      const updatedTemplates = await getTemplates();
+      setTemplates(updatedTemplates || []);
+
       addToast({
         title: 'Success',
         description: 'Template deleted successfully.',
         variant: 'success',
       });
-    } catch {
+    } catch (error) {
+      console.error('Error deleting template:', error);
       addToast({
         title: 'Error',
         description: 'Failed to delete template.',
         variant: 'error',
       });
+    } finally {
+      setLoading(false); // Hide loading screen
     }
   };
 
   const handlePublish = async (id: string) => {
-    try {
-      addToast({
-        title: 'Success',
-        description: 'Template published successfully.',
-        variant: 'success',
-      });
-    } catch {
-      addToast({
-        title: 'Error',
-        description: 'Failed to publish template.',
-        variant: 'error',
-      });
-    }
-  };
+      try {
+        // Update the is_public status in the database
+        const { error } = await dashboardSupabase
+          .from('templates')
+          .update({ is_public: true })
+          .eq('id', id);
+  
+        if (error) throw error;
+  
+        // Update the local state to reflect the change
+        setTemplates(prev => prev.map(template => 
+          template.id === id ? { ...template, is_public: true } : template
+        ));
+  
+        addToast({
+          title: 'Success',
+          description: 'Template published successfully.',
+          variant: 'success',
+        });
+      } catch (error) {
+        console.error('Error publishing template:', error);
+        addToast({
+          title: 'Error',
+          description: 'Failed to publish template.',
+          variant: 'error',
+        });
+      }
+    };
 
   const handleEdit = () => {
     // Logic to navigate to the edit page or open an edit modal
@@ -223,43 +456,79 @@ export default function TemplatesPage() {
 
   const handleDeleteConfirm = async () => {
     if (templateToDelete) {
+      setDeleteDialogOpen(false); // Hide the confirmation dialog box
+      setLoading(true); // Show loading screen
       await handleDelete(templateToDelete.id, templateToDelete.folderPath);
       setTemplateToDelete(null);
-      setDeleteDialogOpen(false);
     }
+  };
+
+  // Ensure environment variables are available
+  const supabaseUrl = process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_URL;
+  const storageBucket = process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET;
+
+  if (!supabaseUrl || !storageBucket) {
+    console.error('Missing required environment variables. Please check your .env file.');
+  }
+
+  const formatImagePath = (path: string | null): string => {
+    if (!path) return '';
+    const base =
+      path.startsWith('http') || path.startsWith('/')
+        ? path
+        : `${supabaseUrl}/storage/v1/object/public/${storageBucket}/${path}`;
+    return base;
   };
 
   return (
     <div className="container mx-auto p-6">
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
+      {loading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      )}
+      <Dialog open={isDialogOpen} onOpenChange={(open) => {
+        console.log('Dialog state changed:', open); // Debugging log
+        setIsDialogOpen(open);
+      }}>
+        <DialogContent aria-describedby="template-dialog-description">
           <DialogHeader>
-            <DialogTitle>Confirm Template Creation</DialogTitle>
+            <DialogTitle>{isEditMode ? 'Confirm Template Update' : 'Confirm Template Creation'}</DialogTitle>
+            <p id="template-dialog-description" className="text-sm text-gray-500">
+              Are you sure you want to {isEditMode ? 'update' : 'create'} the template "{formData.name}"?
+            </p>
           </DialogHeader>
-          <p>Are you sure you want to create this template?</p>
-          <DialogFooter>
-            <button
-              className="rounded-lg bg-blue-500 px-4 py-2.5 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              onClick={handleConfirm}
-            >
-              Confirm
-            </button>
-            <button
-              className="rounded-lg bg-gray-500 px-4 py-2.5 text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-              onClick={() => setIsDialogOpen(false)}
-            >
-              Cancel
-            </button>
-          </DialogFooter>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleConfirm(); // Changed from handleSubmit() to handleConfirm()
+              setIsDialogOpen(false);
+            }}
+          >
+            <DialogFooter>
+              <button type="submit" className="bg-blue-500 text-white px-4 py-2 rounded">
+                {isEditMode ? 'Update Template' : 'Create Template'}
+              </button>
+              <button
+                type="button"
+                className="bg-gray-500 text-white px-4 py-2 rounded"
+                onClick={() => setIsDialogOpen(false)}
+              >
+                Cancel
+              </button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent>
+        <DialogContent aria-describedby="delete-dialog-description">
           <DialogHeader>
             <DialogTitle>Confirm Deletion</DialogTitle>
           </DialogHeader>
-          <p>Are you sure you want to delete this template? This action cannot be undone.</p>
+          <p id="delete-dialog-description" className="text-sm text-gray-500">
+            Are you sure you want to delete this template? This action cannot be undone.
+          </p>
           <DialogFooter>
             <button
               className="rounded-lg bg-red-500 px-4 py-2.5 text-white hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
@@ -277,50 +546,127 @@ export default function TemplatesPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="flex gap-8">
+      <div className="flex flex-col lg:flex-row gap-4">
         {/* Templates List Section */}
-        <div className="w-[60%] rounded-lg bg-white p-6 shadow-md dark:bg-slate-800">
-          <h2 className="mb-6 text-2xl font-bold text-slate-800 dark:text-white">Templates</h2>
+        <div
+          className="lg:w-[60%] w-full rounded-lg bg-white p-6 shadow-md dark:bg-slate-800"
+          style={{ maxHeight: '1500px', overflowY: 'auto' }} // Increased height to 1000px
+          onScroll={(e) => {
+            const target = e.target as HTMLElement;
+            if (
+              target.scrollHeight - target.scrollTop === target.clientHeight &&
+              !isLoadingMore &&
+              hasMoreTemplates
+            ) {
+              setPage((prevPage) => prevPage + 1); // Load more templates when scrolled to the bottom
+            }
+          }}
+        >
+          <h2 className="mb-6 text-2xl font-bold text-slate-800 dark:text-white">Templates List</h2>
           <div className="space-y-3">
-            {templates.map(template => (
-              <div 
+            {templates.map((template) => (
+              <div
                 key={template.id}
-                className="flex items-center justify-between rounded-lg bg-slate-100 p-4 transition-all hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600"
+                className="flex flex-col sm:flex-row items-center justify-between rounded-lg bg-slate-100 p-8 transition-all hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600"
               >
-                <div className="flex items-center gap-4">
-                  <div className="h-10 w-10 rounded overflow-hidden">
+                <div className="flex items-center gap-8">
+                  <div className="h-32 w-32 rounded overflow-hidden">
                     {template.thumbnail_path ? (
                       <Image
-                        src={`${process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_URL}/storage/v1/object/public/${process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET}/${template.thumbnail_path}`}
+                        src={formatImagePath(template.thumbnail_path)}
                         alt={template.name}
-                        width={40}
-                        height={40}
+                        width={128}
+                        height={128}
                         className="h-full w-full object-cover"
                       />
                     ) : (
                       <div className="h-full w-full bg-red-500"></div>
                     )}
                   </div>
-                  <span className="text-slate-800 dark:text-white">{template.name}</span>
+                  <span className="text-xl font-bold text-slate-800 dark:text-white">{template.name}</span>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-sm text-slate-500 dark:text-slate-400">
-                    {template.is_public ? 'Published' : 'Pending'}
-                  </span>
+                <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-4 mt-4 sm:mt-0">
                   <button
-                    className="rounded bg-green-500 px-3 py-1 text-white hover:bg-green-600"
+                    className={`rounded px-6 py-3 text-white ${template.is_public 
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : 'bg-green-500 hover:bg-green-600'}`}
                     onClick={() => handlePublish(template.id)}
+                    disabled={template.is_public}
                   >
-                    Publish
+                    {template.is_public ? 'Published' : 'Publish'}
                   </button>
                   <button
-                    className="rounded bg-blue-500 px-3 py-1 text-white hover:bg-blue-600"
-                    onClick={() => handleEdit()}
+                    className="rounded bg-blue-500 px-6 py-3 text-white hover:bg-blue-600"
+                    onClick={async () => {
+                      setLoading(true);
+                      setIsEditMode(true);
+                      setEditingTemplateId(template.id);
+                      try {
+                        const { data: templateDetails, error } = await dashboardSupabase
+                          .from('templates')
+                          .select('name, description, category, tags, terms_section_background_color, product_section_background_color, product_card_background_color, global_text_color, header_image_path, thumbnail_path, seasonal_badge_paths')
+                          .eq('id', template.id)
+                          .single();
+                    
+                        if (error) {
+                          console.error('Error fetching template details:', error);
+                          addToast({
+                            title: 'Error',
+                            description: 'Failed to fetch template details.',
+                            variant: 'error',
+                          });
+                          return;
+                        }
+                    
+                        // Add cache-busting query param to force fresh fetch from backend
+                        const cacheBuster = `?t=${Date.now()}`;
+                        const formatImagePath = (path: string | null): string => {
+                          if (!path) return '';
+                          const base =
+                            path.startsWith('http') || path.startsWith('/')
+                              ? path
+                              : `${process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_URL}/storage/v1/object/public/${process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET}/${path}`;
+                          // Append cache buster
+                          return base + cacheBuster;
+                        };
+                    
+                        setFormData({
+                          name: templateDetails.name,
+                          description: templateDetails.description || '',
+                          category: templateDetails.category || '',
+                          tags: templateDetails.tags?.join(', ') || '',
+                          terms_section_background_color: templateDetails.terms_section_background_color || '#ffffff',
+                          product_section_background_color: templateDetails.product_section_background_color || '#ffffff',
+                          product_card_background_color: templateDetails.product_card_background_color || '#ffffff',
+                          global_text_color: templateDetails.global_text_color || '#000000',
+                        });
+                    
+                        setFiles({
+                          headerImage: null,
+                          thumbnail: null,
+                          seasonalBadges: [],
+                          previews: {
+                            headerImage: formatImagePath(templateDetails.header_image_path),
+                            thumbnail: formatImagePath(templateDetails.thumbnail_path),
+                            seasonalBadges: templateDetails.seasonal_badge_paths?.map(formatImagePath) || [],
+                          },
+                        });
+                      } catch (err) {
+                        console.error('Unexpected error:', err);
+                        addToast({
+                          title: 'Error',
+                          description: 'An unexpected error occurred.',
+                          variant: 'error',
+                        });
+                      } finally {
+                        setLoading(false); // Hide loading screen
+                      }
+                    }}
                   >
                     Edit
                   </button>
                   <button
-                    className="rounded bg-red-500 px-3 py-1 text-white hover:bg-red-600"
+                    className="rounded bg-red-500 px-6 py-3 text-white hover:bg-red-600"
                     onClick={() => confirmDeleteTemplate(template.id, template.thumbnail_path)}
                   >
                     Delete
@@ -328,12 +674,55 @@ export default function TemplatesPage() {
                 </div>
               </div>
             ))}
+            {isLoadingMore && (
+              <div className="flex justify-center py-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Loading more templates...</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Create Template Form Section */}
-        <div className="w-[40%] rounded-lg bg-white p-6 shadow-md dark:bg-slate-800">
-          <h2 className="mb-6 text-2xl font-bold text-slate-800 dark:text-white">Create template</h2>
+        {/* Create/Update Template Form Section */}
+        <div className="lg:w-[40%] w-full rounded-lg bg-white p-6 shadow-md dark:bg-slate-800">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
+              {isEditMode ? 'Update Template' : 'Create Template'}
+            </h2>
+            {isEditMode && (
+              <button
+                className="text-sm text-red-500 hover:text-red-600 focus:outline-none"
+                onClick={() => {
+                  setIsEditMode(false);
+                  setEditingTemplateId(null);
+                  setFormData({
+                    name: '',
+                    description: '',
+                    category: '',
+                    tags: '',
+                    terms_section_background_color: '#ffffff',
+                    product_section_background_color: '#ffffff',
+                    product_card_background_color: '#ffffff',
+                    global_text_color: '#000000',
+                  });
+                  setFiles({
+                    headerImage: null,
+                    thumbnail: null,
+                    seasonalBadges: [],
+                    previews: {
+                      headerImage: '',
+                      thumbnail: '',
+                      seasonalBadges: [],
+                    },
+                  });
+                }}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
           <form className="space-y-6">
             {/* Basic Information */}
             <div className="grid gap-6 md:grid-cols-2">
@@ -344,7 +733,8 @@ export default function TemplatesPage() {
                   name="name"
                   value={formData.name}
                   onChange={handleInputChange}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 focus:border-blue-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700" 
+                  readOnly={isEditMode}
+                  className={isEditMode ? "w-full rounded-lg border-gray-300 px-4 py-2.5 text-gray-900 focus:border-blue-500 focus:ring-blue-500" :"w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 focus:border-blue-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700" }
                   placeholder="Name"
                   required
                 />
@@ -528,8 +918,8 @@ export default function TemplatesPage() {
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Product section color:</label>
                 <input 
                   type="color" 
-                  name="products_section_background_color"
-                  value={formData.products_section_background_color}
+                  name="product_section_background_color"
+                  value={formData.product_section_background_color}
                   onChange={handleInputChange}
                   className="h-10 w-full rounded-lg border border-slate-300 bg-white p-1 dark:border-slate-600 dark:bg-slate-700" 
                 />
@@ -559,28 +949,16 @@ export default function TemplatesPage() {
             {/* Submit Button */}
             <div className="pt-4">
               {/* Dialog Wrapper */}
-              <Dialog>
+              <Dialog open={isDialogOpen} onOpenChange={(open) => setIsDialogOpen(open)}>
                 <DialogTrigger asChild>
                   <button
                     type="button"
                     className="w-full rounded-lg bg-blue-500 px-4 py-2.5 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                   >
-                    Create Template
+                    {isEditMode ? 'Update Template' : 'Create Template'}
                   </button>
                 </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create a New Template</DialogTitle>
-                  </DialogHeader>
-                  <form>
-                    {/* Form content here */}
-                  </form>
-                  <DialogFooter>
-                    <button type="submit" className="bg-blue-500 text-white px-4 py-2 rounded">
-                      Submit
-                    </button>
-                  </DialogFooter>
-                </DialogContent>
+                
               </Dialog>
             </div>
           </form>
