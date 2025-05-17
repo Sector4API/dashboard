@@ -31,21 +31,15 @@ class ProductApiClient {
 
   async uploadProductImage(fileInput: File | Blob, options: UploadOptions = {}) {
     try {
-      let fileName: string;
-      let fileData: File | Blob;
-      let productName: string;
-
       if (!(fileInput instanceof File || fileInput instanceof Blob)) {
         throw new Error('fileInput must be a File or Blob object');
       }
 
-      fileName = (fileInput as File).name || `upload_${Date.now()}`;
+      const fileName = (fileInput as File).name || `upload_${Date.now()}`;
       const lastDotIndex = fileName.lastIndexOf('.');
       const fileNameWithoutExt = lastDotIndex !== -1 ? fileName.substring(0, lastDotIndex) : fileName;
-
-      productName = options.customProductName || fileNameWithoutExt.replace(/[^a-zA-Z0-9]/g, ' ').trim();
-      fileData = fileInput;
-
+      const productName = options.customProductName || fileNameWithoutExt.replace(/[^a-zA-Z0-9]/g, ' ').trim();
+      const fileData = fileInput;
       const productTag: string = options.customProductTag || productName;
 
       const { error: uploadError } = await this.supabase.storage
@@ -92,15 +86,9 @@ class ProductApiClient {
       let oldImagePath: string | null = null;
       
       if (updates.fileInput) {
-        let fileName: string;
-        let fileData: File | Blob;
-
-        if (!(updates.fileInput instanceof File || updates.fileInput instanceof Blob)) {
-          throw new Error('fileInput must be a File or Blob object');
-        }
-
-        fileName = (updates.fileInput as File).name || `upload_${Date.now()}`;
-        fileData = updates.fileInput;
+        // Change let to const since these variables are never reassigned
+        const fileName = (updates.fileInput as File).name || `upload_${Date.now()}`;
+        const fileData = updates.fileInput;
 
         // Upload new image
         const { error: uploadError } = await this.supabase.storage
