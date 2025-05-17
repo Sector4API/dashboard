@@ -1,10 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 import ProductApiClient from '@/lib/product-api-client';
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+type RouteParams = { params: { id: string } }
+
+export async function POST(request: NextRequest, { params }: RouteParams) {
   const id = params.id;
   if (!id) return NextResponse.json({ error: 'Invalid product ID' }, { status: 400 });
-  const formData = await req.formData();
+  const formData = await request.formData();
   const fileInput = formData.get('fileInput');
   const productName = formData.get('productName') as string;
   const productTag = formData.get('productTag') as string;
