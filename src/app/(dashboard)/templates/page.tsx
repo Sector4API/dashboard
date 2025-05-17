@@ -404,7 +404,7 @@ export default function TemplatesPage() {
         variant: 'success',
       });
     } catch (error) {
-      console.error('Error deleting template:', error);
+      // console.error('Error deleting template:', error);
       addToast({
         title: 'Error',
         description: 'Failed to delete template.',
@@ -436,7 +436,7 @@ export default function TemplatesPage() {
           variant: 'success',
         });
       } catch (error) {
-        console.error('Error publishing template:', error);
+        // console.error('Error publishing template:', error);
         addToast({
           title: 'Error',
           description: 'Failed to publish template.',
@@ -468,7 +468,7 @@ export default function TemplatesPage() {
   const storageBucket = process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET;
 
   if (!supabaseUrl || !storageBucket) {
-    console.error('Missing required environment variables. Please check your .env file.');
+    // console.error('Missing required environment variables. Please check your .env file.');
   }
 
   const formatImagePath = (path: string | null): string => {
@@ -488,7 +488,7 @@ export default function TemplatesPage() {
         </div>
       )}
       <Dialog open={isDialogOpen} onOpenChange={(open) => {
-        console.log('Dialog state changed:', open); // Debugging log
+        // console.log('Dialog state changed:', open); // Debugging log
         setIsDialogOpen(open);
       }}>
         <DialogContent aria-describedby="template-dialog-description">
@@ -609,7 +609,7 @@ export default function TemplatesPage() {
                           .single();
                     
                         if (error) {
-                          console.error('Error fetching template details:', error);
+                          // console.error('Error fetching template details:', error);
                           addToast({
                             title: 'Error',
                             description: 'Failed to fetch template details.',
@@ -652,7 +652,7 @@ export default function TemplatesPage() {
                           },
                         });
                       } catch (err) {
-                        console.error('Unexpected error:', err);
+                        // console.error('Unexpected error:', err);
                         addToast({
                           title: 'Error',
                           description: 'An unexpected error occurred.',

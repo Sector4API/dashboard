@@ -140,7 +140,7 @@ class ProductApiClient {
           .remove([oldImagePath]);
 
         if (deleteError) {
-          console.warn(`Failed to delete old image: ${oldImagePath}`, deleteError);
+          // console.warn(`Failed to delete old image: ${oldImagePath}`, deleteError);
           // Don't throw error here, as the update was successful
         }
       }
