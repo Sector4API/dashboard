@@ -39,29 +39,38 @@ export default function TemplatesPage() {
   const [editingTemplateId, setEditingTemplateId] = React.useState<string | null>(null);
   
   // Update the fetchTemplates function to ensure the spinner is completely removed when no more templates are available
+  // Remove unused lastTemplateRef variable since it's not being used
   const fetchTemplates = async (page: number) => {
-    setIsLoadingMore(true); // Show loading spinner for the template list
+    setIsLoadingMore(true);
     try {
       const { data, error } = await dashboardSupabase
         .from('templates')
         .select('*')
-        .range((page - 1) * 10, page * 10 - 1); // Fetch 10 templates per page
-
+        .range((page - 1) * 10, page * 10 - 1);
+  
       if (error) {
-        // console.error('Error fetching templates:', error);
+        addToast({
+          title: 'Error',
+          description: 'Failed to fetch templates',
+          variant: 'error',
+        });
         return;
       }
-
+  
       if (!data || data.length === 0) {
-        setHasMoreTemplates(false); // Indicate no more templates are available
+        setHasMoreTemplates(false);
         return;
       }
-
+  
       setTemplates((prev) => (page === 1 ? data : [...prev, ...data]));
-    } catch (err) {
-      // console.error('Unexpected error:', err);
+    } catch (error) {
+      addToast({
+        title: 'Error',
+        description: 'An unexpected error occurred while fetching templates',
+        variant: 'error',
+      });
     } finally {
-      setIsLoadingMore(false); // Hide loading spinner
+      setIsLoadingMore(false);
     }
   };
 
@@ -154,15 +163,13 @@ export default function TemplatesPage() {
     try {
       // Only check for duplicate names when creating a new template
       if (!isEditMode) {
-        // console.log('Checking for duplicate template name:', formData.name);
         const { data: existingTemplate, error } = await dashboardSupabase
           .from('templates')
           .select('id')
           .eq('name', formData.name)
           .maybeSingle();
-  
+
         if (error) {
-          // console.error('Error checking template name:', error);
           addToast({
             title: 'Error',
             description: 'An error occurred while checking the template name.',
@@ -170,9 +177,8 @@ export default function TemplatesPage() {
           });
           return;
         }
-  
+
         if (existingTemplate) {
-          // console.log('Duplicate template found:', existingTemplate);
           addToast({
             title: 'Error',
             description: 'A template with this name already exists. Please enter a new name.',
@@ -181,7 +187,7 @@ export default function TemplatesPage() {
           return;
         }
       }
-  
+
       // Proceed with template submission
       // console.log('handleSubmit triggered'); // Debugging log
       if (!files.headerImage || !files.thumbnail) {
@@ -193,7 +199,7 @@ export default function TemplatesPage() {
         setLoading(false); // Hide loading screen
         return;
       }
-  
+
       const seasonalBadgeFiles = files.seasonalBadges.filter(Boolean);
       if (seasonalBadgeFiles.length === 0) {
         addToast({
@@ -204,7 +210,7 @@ export default function TemplatesPage() {
         setLoading(false); // Hide loading screen
         return;
       }
-  
+
       try {
         // console.log('Calling createTemplate with formData:', formData); // Debugging log
         await createTemplate({
@@ -216,13 +222,13 @@ export default function TemplatesPage() {
                   products_section_background_color: formData.product_section_background_color,
                   product_card_background_color: formData.product_card_background_color,
                 });
-  
+
         addToast({
           title: 'Success',
           description: 'Template created successfully!',
           variant: 'success',
         });
-  
+
         // Reset form
         setFormData({
           name: '',
@@ -245,7 +251,7 @@ export default function TemplatesPage() {
           }
         });
         setSeasonalBadges([1, 2, 3]);
-  
+
         // Fetch updated templates
         const updatedTemplates = await getTemplates();
         setTemplates(updatedTemplates || []);
