@@ -67,6 +67,7 @@ const ProductsPage = () => {
     setProductToDelete(null);
   };
 
+  // Fix error handling to use error parameter
   const handleDelete = async (productId: number) => {
     try {
       const res = await fetch(`/api/products/${productId}`, { method: 'DELETE' });

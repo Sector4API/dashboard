@@ -17,15 +17,7 @@ export default function DashboardLayout({ children }: Props) {
   const router = useRouter();
 
   useEffect(() => {
-    const handleRouteChange = (url: string) => {
-      if (url.includes('/dashboard/templates') || url.includes('/dashboard/admin')) {
-        setIsLoading(true);
-      } else {
-        setIsLoading(false);
-      }
-    };
-
-    // Simulate route change handling
+    // Remove handleRouteChange declaration since it's unused
     router.prefetch('/dashboard/templates');
     router.prefetch('/dashboard.admin');
 

@@ -501,7 +501,7 @@ export default function TemplatesPage() {
           <DialogHeader>
             <DialogTitle>{isEditMode ? 'Confirm Template Update' : 'Confirm Template Creation'}</DialogTitle>
             <p id="template-dialog-description" className="text-sm text-gray-500">
-              Are you sure you want to {isEditMode ? 'update' : 'create'} the template "{formData.name}"?
+              Are you sure you want to {isEditMode ? 'update' : 'create'} the template `&quot;`{formData.name}`&quot;`?
             </p>
           </DialogHeader>
           <form

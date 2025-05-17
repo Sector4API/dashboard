@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 import ProductApiClient from '@/lib/product-api-client';
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
