@@ -133,16 +133,37 @@ class ProductApiClient {
 
   async searchByTag(query: string) {
     try {
-      const { data, error } = await this.supabase
+      const lowercaseQuery = query.toLowerCase();
+
+      // First, search by tags
+      const { data: tagResults, error: tagError } = await this.supabase
         .from('products')
         .select('tags, image_path, product_name, id, main_category')
         .filter('tags', 'cs', `{${query}}`);
 
-      if (error) throw error;
+      if (tagError) throw tagError;
 
-      if (data && data.length > 0) {
+      // Then, search by product name
+      const { data: nameResults, error: nameError } = await this.supabase
+        .from('products')
+        .select('tags, image_path, product_name, id, main_category')
+        .ilike('product_name', `%${query}%`);
+
+      if (nameError) throw nameError;
+
+      // Combine and deduplicate results
+      const combinedResults = [...(tagResults || [])];
+      if (nameResults) {
+        nameResults.forEach(nameResult => {
+          if (!combinedResults.some(tagResult => tagResult.id === nameResult.id)) {
+            combinedResults.push(nameResult);
+          }
+        });
+      }
+
+      if (combinedResults.length > 0) {
         const productsWithUrls = await Promise.all(
-          data.map(async (product) => {
+          combinedResults.map(async (product) => {
             const { data: urlData } = this.supabase.storage.from(this.storageBucket).getPublicUrl(product.image_path);
 
             return {
@@ -154,9 +175,34 @@ class ProductApiClient {
           })
         );
 
-        return { found: true, products: productsWithUrls, count: productsWithUrls.length };
+        // Sort results by relevance
+        const sortedProducts = productsWithUrls.sort((a, b) => {
+          const aName = a.product_name.toLowerCase();
+          const bName = b.product_name.toLowerCase();
+          
+          // Check for exact matches first
+          if (aName === lowercaseQuery && bName !== lowercaseQuery) return -1;
+          if (bName === lowercaseQuery && aName !== lowercaseQuery) return 1;
+          
+          // Then check for starts with
+          const aStartsWith = aName.startsWith(lowercaseQuery);
+          const bStartsWith = bName.startsWith(lowercaseQuery);
+          if (aStartsWith && !bStartsWith) return -1;
+          if (bStartsWith && !aStartsWith) return 1;
+          
+          // Then check for contains
+          const aContains = aName.includes(lowercaseQuery);
+          const bContains = bName.includes(lowercaseQuery);
+          if (aContains && !bContains) return -1;
+          if (bContains && !aContains) return 1;
+          
+          // If both have same relevance, sort alphabetically
+          return aName.localeCompare(bName);
+        });
+
+        return { found: true, products: sortedProducts, count: sortedProducts.length };
       } else {
-        return { found: false, message: `Product with tag "${query}" not found in the database.` };
+        return { found: false, message: `No products found matching "${query}"` };
       }
     } catch (error) {
       return { found: false, error: error instanceof Error ? error.message : 'Unknown error' };
