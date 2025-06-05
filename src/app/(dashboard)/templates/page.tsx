@@ -29,7 +29,7 @@ export default function TemplatesPage() {
     seasonalBadges?: string[]; 
   }[]>([]);
   const [seasonalBadges, setSeasonalBadges] = React.useState([1, 2, 3]);
-  const maxFileSize = 5 * 1024 * 1024; // 5MB in bytes
+  const maxFileSize = 10 * 1024 * 1024; // 10MB in bytes
   const [isDialogOpen, setIsDialogOpen] = React.useState(false); // State for confirmation dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const [templateToDelete, setTemplateToDelete] = React.useState<{ id: string; folderPath: string } | null>(null);
@@ -156,7 +156,7 @@ export default function TemplatesPage() {
   const [files, setFiles] = React.useState({
     headerImage: null as File | null,
     thumbnail: null as File | null,
-    seasonalBadges: [] as File[],
+    seasonalBadges: [] as (File | null)[],
     previews: {
       headerImage: '',
       thumbnail: '',
@@ -180,7 +180,7 @@ export default function TemplatesPage() {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > maxFileSize) {
-        alert('File size must be less than 5MB');
+        alert('File size must be less than 10MB');
         e.target.value = '';
         return;
       }
@@ -191,9 +191,21 @@ export default function TemplatesPage() {
         setFiles(prev => {
           const newBadges = [...prev.seasonalBadges];
           const newPreviews = [...prev.previews.seasonalBadges];
+          
+          // Ensure arrays are long enough
+          while (newBadges.length <= index) {
+            newBadges.push(null);
+            newPreviews.push('');
+          }
+          
           newBadges[index] = file;
           newPreviews[index] = fileURL;
-          return { ...prev, seasonalBadges: newBadges, previews: { ...prev.previews, seasonalBadges: newPreviews } };
+          
+          return {
+            ...prev,
+            seasonalBadges: newBadges,
+            previews: { ...prev.previews, seasonalBadges: newPreviews }
+          };
         });
       } else if (type === 'headerImage' || type === 'thumbnail') {
         setFiles(prev => ({
@@ -335,55 +347,52 @@ export default function TemplatesPage() {
     if (!editingTemplateId) return;
     setLoading(true);
     try {
-      // Fetch the existing template data to get the current seasonal badge paths
-      const { data: existingTemplate, error: fetchError } = await dashboardSupabase
-        .from('templates')
-        .select('seasonal_badge_paths')
-        .eq('id', editingTemplateId)
-        .single();
+      // First, handle file updates if new files are selected
+      if (files.headerImage || files.thumbnail || files.seasonalBadges.length > 0) {
+        const updatedPaths = await updateTemplateAssets(editingTemplateId, {
+          headerImage: files.headerImage,
+          thumbnail: files.thumbnail,
+          seasonalBadges: files.seasonalBadges,
+          replaceExisting: true // Add this flag to indicate we want to replace existing files
+        });
 
-      if (fetchError) throw fetchError;
+        // Update the template record with new file paths
+        const updatePayload = {
+          description: formData.description,
+          category: formData.category,
+          tags: formData.tags.split(',').map(tag => tag.trim()),
+          terms_section_background_color: formData.terms_section_background_color,
+          product_section_background_color: formData.product_section_background_color,
+          product_card_background_color: formData.product_card_background_color,
+          global_text_color: formData.global_text_color,
+          header_image_path: updatedPaths.headerImagePath || undefined,
+          thumbnail_path: updatedPaths.thumbnailPath || undefined,
+          seasonal_badge_paths: updatedPaths.seasonalBadgePaths || undefined
+        };
 
-      const existingBadgePaths = existingTemplate?.seasonal_badge_paths || [];
+        const { error: updateError } = await dashboardSupabase
+          .from('templates')
+          .update(updatePayload)
+          .eq('id', editingTemplateId);
 
-      // Handle file updates if new files are selected
-      let updatedBadgePaths = [...existingBadgePaths];
-      if (files.seasonalBadges.length > 0) {
-        const newBadgePaths = await Promise.all(
-          files.seasonalBadges.filter(Boolean).map(async (badge) => {
-            const updatedPaths = await updateTemplateAssets(editingTemplateId, {
-              headerImage: null,
-              thumbnail: null,
-              seasonalBadges: [badge],
-            });
-            return updatedPaths.seasonalBadgePaths[0];
+        if (updateError) throw updateError;
+      } else {
+        // If no new files, just update the non-file fields
+        const { error: updateError } = await dashboardSupabase
+          .from('templates')
+          .update({
+            description: formData.description,
+            category: formData.category,
+            tags: formData.tags.split(',').map(tag => tag.trim()),
+            terms_section_background_color: formData.terms_section_background_color,
+            product_section_background_color: formData.product_section_background_color,
+            product_card_background_color: formData.product_card_background_color,
+            global_text_color: formData.global_text_color,
           })
-        );
-        updatedBadgePaths = [...existingBadgePaths, ...newBadgePaths];
+          .eq('id', editingTemplateId);
+
+        if (updateError) throw updateError;
       }
-
-      // Prepare the payload for the update
-      const updatePayload = {
-        description: formData.description,
-        category: formData.category,
-        tags: formData.tags.split(',').map(tag => tag.trim()),
-        terms_section_background_color: formData.terms_section_background_color,
-        product_section_background_color: formData.product_section_background_color, // Renamed
-        product_card_background_color: formData.product_card_background_color,
-        global_text_color: formData.global_text_color,
-        seasonal_badge_paths: updatedBadgePaths,
-      };
-
-      // Log the payload for debugging
-      // console.log('Payload for update:', updatePayload);
-
-      // Update template data in the database
-      const { error: updateError } = await dashboardSupabase
-        .from('templates')
-        .update(updatePayload)
-        .eq('id', editingTemplateId);
-
-      if (updateError) throw updateError;
 
       // Reset form and states
       setFormData({
@@ -419,10 +428,9 @@ export default function TemplatesPage() {
         variant: 'success',
       });
     } catch (error) {
-      // console.error('Error updating template:', error instanceof Error ? error.message : error);
       addToast({
         title: 'Error',
-        description: 'Failed to update template. Please check the console for more details.',
+        description: 'Failed to update template. Please try again.',
         variant: 'error',
       });
     } finally {
@@ -447,7 +455,27 @@ export default function TemplatesPage() {
   };
 
   const removeSeasonalBadge = (index: number) => {
+    // Update seasonalBadges state
     setSeasonalBadges(seasonalBadges.filter((_, i) => i !== index));
+    
+    // Update files state
+    setFiles(prev => {
+      const newBadges = [...prev.seasonalBadges];
+      const newPreviews = [...prev.previews.seasonalBadges];
+      
+      // Remove the file and preview at the specified index
+      newBadges.splice(index, 1);
+      newPreviews.splice(index, 1);
+      
+      return {
+        ...prev,
+        seasonalBadges: newBadges,
+        previews: {
+          ...prev.previews,
+          seasonalBadges: newPreviews
+        }
+      };
+    });
   };
 
   const handleDelete = async (id: string, folderPath: string) => {
@@ -937,7 +965,7 @@ export default function TemplatesPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                       </svg>
                       <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Max size: 5MB</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Max size: 10MB</p>
                     </div>
                     <input 
                       type="file" 
@@ -967,7 +995,7 @@ export default function TemplatesPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                       </svg>
                       <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Max size: 5MB</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Max size: 10MB</p>
                     </div>
                     <input 
                       type="file" 
@@ -1018,7 +1046,7 @@ export default function TemplatesPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                           </svg>
                           <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">Max size: 5MB</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">Max size: 10MB</p>
                         </div>
                         <input 
                           type="file" 
