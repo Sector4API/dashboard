@@ -70,8 +70,8 @@ importers:
         specifier: ^0.3.0
         version: 0.3.0(react-dom@19.0.0-rc-69d4b800-20241021(react@19.0.0-rc-69d4b800-20241021))(react@19.0.0-rc-69d4b800-20241021)
       product-api-client:
-        specifier: git+https://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@github.com/Sector4API/product-api-client.git
-        version: git+https://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@github.com/Sector4API/product-api-client.git#41543a3564d0c74cf3247c4db261abc5ce6ccb28
+        specifier: git+https://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@github.com/Sector4API/product-api-client.git
+        version: git+https://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@github.com/Sector4API/product-api-client.git#41543a3564d0c74cf3247c4db261abc5ce6ccb28
       react:
         specifier: 19.0.0-rc-69d4b800-20241021
         version: 19.0.0-rc-69d4b800-20241021
@@ -2983,8 +2983,8 @@ packages:
     engines: {node: '>=14'}
     hasBin: true
 
-  product-api-client@git+https://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@github.com/Sector4API/product-api-client.git#41543a3564d0c74cf3247c4db261abc5ce6ccb28:
-    resolution: {commit: 41543a3564d0c74cf3247c4db261abc5ce6ccb28, repo: https://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@github.com/Sector4API/product-api-client.git, type: git}
+  product-api-client@git+https://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@github.com/Sector4API/product-api-client.git#41543a3564d0c74cf3247c4db261abc5ce6ccb28:
+    resolution: {commit: 41543a3564d0c74cf3247c4db261abc5ce6ccb28, repo: https://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@github.com/Sector4API/product-api-client.git, type: git}
     version: 1.4.0
 
   prompts@2.4.2:
@@ -6704,7 +6704,7 @@ snapshots:
 
   prettier@3.5.3: {}
 
-  product-api-client@git+https://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@github.com/Sector4API/product-api-client.git#41543a3564d0c74cf3247c4db261abc5ce6ccb28:
+  product-api-client@git+https://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@github.com/Sector4API/product-api-client.git#41543a3564d0c74cf3247c4db261abc5ce6ccb28:
     dependencies:
       '@supabase/supabase-js': 2.49.10
     transitivePeerDependencies:
