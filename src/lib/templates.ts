@@ -3,15 +3,14 @@ import { dashboardSupabase } from './supabase';
 type TemplateInput = {
   name: string;
   description: string;
-  category: string;
+  category: string[];
   headerImage: File;
   thumbnail: File;
   seasonalBadges: File[];
   tags: string[];
   isPublic?: boolean;
   terms_section_background_color: string;
-  products_section_background_color: string;
-  product_section_background_color: string; // Renamed
+  product_section_background_color: string;
   product_card_background_color: string;
   global_text_color: string;
 };
@@ -30,13 +29,13 @@ type LogMessage = {
 const logger = {
   error: (message: string, error?: LogMessage) => {
     if (process.env.NODE_ENV !== 'production') {
-      console.error(message, error)
+      //  console.error(message, error)
     }
     // In production, you might want to use a proper logging service
   },
   info: (message: string, data?: LogMessage) => {
     if (process.env.NODE_ENV !== 'production') {
-      console.log(message, data)
+      //  console.log(message, data)
     }
   }
 };
@@ -51,23 +50,47 @@ export const createTemplate = async (input: TemplateInput) => {
 
     // Upload header image
     const headerPath = `${folderName}/${input.headerImage.name}`;
-    await dashboardSupabase.storage
+    const { error: headerError } = await dashboardSupabase.storage
       .from(storageBucket)
       .upload(headerPath, input.headerImage);
 
+    if (headerError) {
+      logger.error('Error uploading header image:', {
+        message: 'Storage Error',
+        details: headerError
+      });
+      throw headerError;
+    }
+
     // Upload thumbnail
     const thumbnailPath = `${folderName}/${input.thumbnail.name}`;
-    await dashboardSupabase.storage
+    const { error: thumbnailError } = await dashboardSupabase.storage
       .from(storageBucket)
       .upload(thumbnailPath, input.thumbnail);
+
+    if (thumbnailError) {
+      logger.error('Error uploading thumbnail:', {
+        message: 'Storage Error',
+        details: thumbnailError
+      });
+      throw thumbnailError;
+    }
 
     // Upload seasonal badges
     const badgePaths = await Promise.all(
       input.seasonalBadges.map(async (badge) => {
         const badgePath = `${folderName}/${badge.name}`;
-        await dashboardSupabase.storage
+        const { error: badgeError } = await dashboardSupabase.storage
           .from(storageBucket)
           .upload(badgePath, badge);
+
+        if (badgeError) {
+          logger.error('Error uploading seasonal badge:', {
+            message: 'Storage Error',
+            details: badgeError
+          });
+          throw badgeError;
+        }
         return badgePath;
       })
     );
@@ -85,40 +108,11 @@ export const createTemplate = async (input: TemplateInput) => {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       terms_section_background_color: input.terms_section_background_color,
-      products_section_background_color: input.products_section_background_color,
-      product_section_background_color: input.product_section_background_color, // Renamed
+      product_section_background_color: input.product_section_background_color,
       product_card_background_color: input.product_card_background_color,
       global_text_color: input.global_text_color
     };
 
-    // Create a logger utility
-    /* eslint-disable no-console */
-    // Add this at the top of the file
-    type LogMessage = {
-      message: string;
-      details?: unknown;
-      stack?: string;
-      cause?: unknown;
-      code?: string;
-      hint?: string;
-    };
-    
-    // Update the logger implementation
-    const logger = {
-      error: (message: string, error?: LogMessage) => {
-        if (process.env.NODE_ENV !== 'production') {
-          console.error(message, error)
-        }
-        // In production, you might want to use a proper logging service
-      },
-      info: (message: string, data?: LogMessage) => {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(message, data)
-        }
-      }
-    };
-
-    // Then replace all console.log/error calls with logger
     logger.info('Attempting to insert template with data:', { message: 'Template Data', details: templateData });
 
     const { data, error } = await dashboardSupabase

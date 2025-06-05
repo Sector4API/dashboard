@@ -1,11 +1,15 @@
 'use client';
 
-import React, { useRef, useCallback } from 'react';
+import * as React from 'react';
 import Image from 'next/image';
 import { createTemplate, getTemplates, deleteTemplate, updateTemplateAssets } from '@/lib/templates';
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast-provider';
 import { dashboardSupabase } from '@/lib/supabase';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function TemplatesPage() {
   const { addToast } = useToast();
@@ -33,11 +37,67 @@ export default function TemplatesPage() {
   const [page, setPage] = React.useState(1);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [hasMoreTemplates, setHasMoreTemplates] = React.useState(true); // State to track if more templates are available
-  const observer = useRef<IntersectionObserver | null>(null);
+  const observer = React.useRef<IntersectionObserver | null>(null);
   // Add this state near other state declarations
   const [isEditMode, setIsEditMode] = React.useState(false);
   const [editingTemplateId, setEditingTemplateId] = React.useState<string | null>(null);
   
+  const categories = [
+    "Supermarket",
+    "Grocery",
+    "Bakery",
+    "Electronics",
+    "Furniture",
+    "Fashion",
+    "Textiles",
+    "Stationery",
+    "Home & Cleaning",
+    "Personal Care",
+    "Jewellery",
+    "Trending",
+    "New Arrivals",
+    "Best Picks",
+    "Festival",
+    "Weekend Offer",
+    "Combo Offer",
+    "Limited Time"
+  ];
+
+  const [formData, setFormData] = React.useState({
+    name: '',
+    description: '',
+    category: [] as string[],
+    tags: '',
+    terms_section_background_color: '#ffffff',
+    product_section_background_color: '#ffffff',
+    product_card_background_color: '#ffffff',
+    global_text_color: '#000000'
+  });
+
+  const [openCategory, setOpenCategory] = React.useState(false);
+
+  const handleCategoryChange = React.useCallback((value: string) => {
+    setFormData(prev => {
+      const newCategories = prev.category.includes(value)
+        ? prev.category.filter(c => c !== value)
+        : [...prev.category, value];
+      
+      // Convert categories to tags
+      const existingTags = prev.tags.split(',')
+        .map(tag => tag.trim())
+        .filter(tag => tag !== '' && !prev.category.includes(tag));
+      
+      // Combine existing non-category tags with new categories
+      const newTags = [...existingTags, ...newCategories].join(', ');
+      
+      return {
+        ...prev,
+        category: newCategories,
+        tags: newTags
+      };
+    });
+  }, []);
+
   // Update the fetchTemplates function to ensure the spinner is completely removed when no more templates are available
   // Remove unused lastTemplateRef variable since it's not being used
   const fetchTemplates = async (page: number) => {
@@ -74,7 +134,7 @@ export default function TemplatesPage() {
     }
   };
 
-  const lastTemplateRef = useCallback(
+  const lastTemplateRef = React.useCallback(
     (node: HTMLElement | null) => {
       if (isLoadingMore || !hasMoreTemplates) return; // Stop observing if no more templates
       if (observer.current) observer.current.disconnect();
@@ -91,18 +151,6 @@ export default function TemplatesPage() {
   React.useEffect(() => {
     fetchTemplates(page);
   }, [page]);
-
-  // Add form state
-  const [formData, setFormData] = React.useState({
-    name: '',
-    description: '',
-    category: '',
-    tags: '',
-    terms_section_background_color: '#ffffff',
-    product_section_background_color: '#ffffff', // Renamed
-    product_card_background_color: '#ffffff',
-    global_text_color: '#000000'
-  });
 
   // Update file state to include preview URLs
   const [files, setFiles] = React.useState({
@@ -161,6 +209,17 @@ export default function TemplatesPage() {
     setIsDialogOpen(false);
     setLoading(true);
     try {
+      // Validate categories
+      if (formData.category.length === 0) {
+        addToast({
+          title: 'Error',
+          description: 'Please select at least one category',
+          variant: 'error',
+        });
+        setLoading(false);
+        return;
+      }
+
       // Only check for duplicate names when creating a new template
       if (!isEditMode) {
         const { data: existingTemplate, error } = await dashboardSupabase
@@ -188,15 +247,14 @@ export default function TemplatesPage() {
         }
       }
 
-      // Proceed with template submission
-      // console.log('handleSubmit triggered'); // Debugging log
+      // Validate required files
       if (!files.headerImage || !files.thumbnail) {
         addToast({
           title: 'Error',
           description: 'Please upload header image and thumbnail',
           variant: 'error',
         });
-        setLoading(false); // Hide loading screen
+        setLoading(false);
         return;
       }
 
@@ -207,21 +265,20 @@ export default function TemplatesPage() {
           description: 'Please upload at least one seasonal badge',
           variant: 'error',
         });
-        setLoading(false); // Hide loading screen
+        setLoading(false);
         return;
       }
 
       try {
-        // console.log('Calling createTemplate with formData:', formData); // Debugging log
         await createTemplate({
-                  ...formData,
-                  tags: formData.tags.split(',').map(tag => tag.trim()),
-                  headerImage: files.headerImage,
-                  thumbnail: files.thumbnail,
-                  seasonalBadges: seasonalBadgeFiles,
-                  products_section_background_color: formData.product_section_background_color,
-                  product_card_background_color: formData.product_card_background_color,
-                });
+          ...formData,
+          tags: formData.tags.split(',').map(tag => tag.trim()),
+          headerImage: files.headerImage,
+          thumbnail: files.thumbnail,
+          seasonalBadges: seasonalBadgeFiles,
+          product_section_background_color: formData.product_section_background_color,
+          product_card_background_color: formData.product_card_background_color,
+        });
 
         addToast({
           title: 'Success',
@@ -233,7 +290,7 @@ export default function TemplatesPage() {
         setFormData({
           name: '',
           description: '',
-          category: '',
+          category: [],
           tags: '',
           terms_section_background_color: '#ffffff',
           product_section_background_color: '#ffffff',
@@ -256,20 +313,18 @@ export default function TemplatesPage() {
         const updatedTemplates = await getTemplates();
         setTemplates(updatedTemplates || []);
       } catch (error) {
-        // console.error('Error during template creation:', error); // Debugging log
+        console.error('Error during template creation:', error);
         addToast({
           title: 'Error',
-          description: 'Failed to create template',
+          description: error instanceof Error ? error.message : 'Failed to create template',
           variant: 'error',
         });
-      } finally {
-        setLoading(false); // Hide loading screen
       }
     } catch (error) {
-      // console.error('Unexpected error:', error);
+      console.error('Unexpected error:', error);
       addToast({
         title: 'Error',
-        description: 'An unexpected error occurred.',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred.',
         variant: 'error',
       });
     } finally {
@@ -334,7 +389,7 @@ export default function TemplatesPage() {
       setFormData({
         name: '',
         description: '',
-        category: '',
+        category: [],
         tags: '',
         terms_section_background_color: '#ffffff',
         product_section_background_color: '#ffffff',
@@ -484,6 +539,104 @@ export default function TemplatesPage() {
         ? path
         : `${supabaseUrl}/storage/v1/object/public/${storageBucket}/${path}`;
     return base;
+  };
+
+  const CategorySelect = () => {
+    const [searchQuery, setSearchQuery] = React.useState("");
+
+    const filteredCategories = React.useMemo(() => {
+      if (!searchQuery) return categories;
+      const search = searchQuery.toLowerCase();
+      return categories.filter(category => 
+        category.toLowerCase().includes(search)
+      );
+    }, [searchQuery]);
+
+    return (
+      <div className="relative w-full">
+        <Popover open={openCategory} onOpenChange={setOpenCategory}>
+          <PopoverTrigger asChild>
+            <div 
+              className="min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-700 cursor-pointer"
+              onClick={() => setOpenCategory(true)}
+            >
+              <div className="flex flex-wrap gap-2">
+                {formData.category.map((selectedCategory) => (
+                  <div
+                    key={selectedCategory}
+                    className="flex items-center gap-1 bg-slate-100 pr-1 text-sm dark:bg-slate-600"
+                  >
+                    <span className="px-2 py-1">{selectedCategory}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCategoryChange(selectedCategory);
+                      }}
+                      className="hover:bg-slate-200 dark:hover:bg-slate-500 rounded"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {formData.category.length === 0 && (
+                  <span className="text-sm text-slate-500">Select categories...</span>
+                )}
+              </div>
+            </div>
+          </PopoverTrigger>
+          <PopoverContent 
+            className="w-[300px] p-0" 
+            align="start"
+            side="bottom"
+            sideOffset={5}
+          >
+            <Command shouldFilter={false} className="rounded-lg border border-slate-200">
+              <CommandInput 
+                placeholder="Search categories..." 
+                className="h-9 border-b border-slate-200"
+                value={searchQuery}
+                onValueChange={setSearchQuery}
+              />
+              <div className="max-h-[200px] overflow-y-auto p-1">
+                {filteredCategories.length === 0 ? (
+                  <div className="py-6 text-center text-sm">No category found.</div>
+                ) : (
+                  filteredCategories.map((category) => (
+                    <div
+                      key={category}
+                      role="option"
+                      aria-selected={formData.category.includes(category)}
+                      className="flex items-center px-2 py-1.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700"
+                      onClick={() => {
+                        handleCategoryChange(category);
+                        setOpenCategory(true); // Keep dropdown open
+                      }}
+                    >
+                      <div className="flex items-center gap-2 flex-1">
+                        <div 
+                          className={cn(
+                            "flex h-4 w-4 items-center justify-center rounded border",
+                            formData.category.includes(category) 
+                              ? "border-blue-500 bg-blue-500" 
+                              : "border-slate-300"
+                          )}
+                        >
+                          {formData.category.includes(category) && (
+                            <Check className="h-3 w-3 text-white" />
+                          )}
+                        </div>
+                        <span>{category}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      </div>
+    );
   };
 
   return (
@@ -639,7 +792,7 @@ export default function TemplatesPage() {
                         setFormData({
                           name: templateDetails.name,
                           description: templateDetails.description || '',
-                          category: templateDetails.category || '',
+                          category: templateDetails.category || [],
                           tags: templateDetails.tags?.join(', ') || '',
                           terms_section_background_color: templateDetails.terms_section_background_color || '#ffffff',
                           product_section_background_color: templateDetails.product_section_background_color || '#ffffff',
@@ -706,7 +859,7 @@ export default function TemplatesPage() {
                   setFormData({
                     name: '',
                     description: '',
-                    category: '',
+                    category: [],
                     tags: '',
                     terms_section_background_color: '#ffffff',
                     product_section_background_color: '#ffffff',
@@ -746,15 +899,8 @@ export default function TemplatesPage() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Category:</label>
-                <input 
-                  type="text" 
-                  name="category"
-                  value={formData.category}
-                  onChange={handleInputChange}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 focus:border-blue-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700" 
-                  placeholder="Category"
-                />
+                <label className="text-sm font-medium">Categories</label>
+                <CategorySelect />
               </div>
             </div>
 
@@ -954,18 +1100,13 @@ export default function TemplatesPage() {
 
             {/* Submit Button */}
             <div className="pt-4">
-              {/* Dialog Wrapper */}
-              <Dialog open={isDialogOpen} onOpenChange={(open) => setIsDialogOpen(open)}>
-                <DialogTrigger asChild>
-                  <button
-                    type="button"
-                    className="w-full rounded-lg bg-blue-500 px-4 py-2.5 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  >
-                    {isEditMode ? 'Update Template' : 'Create Template'}
-                  </button>
-                </DialogTrigger>
-                
-              </Dialog>
+              <button
+                type="button"
+                className="w-full rounded-lg bg-blue-500 px-4 py-2.5 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                onClick={() => setIsDialogOpen(true)}
+              >
+                {isEditMode ? 'Update Template' : 'Create Template'}
+              </button>
             </div>
           </form>
         </div>

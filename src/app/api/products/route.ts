@@ -16,7 +16,14 @@ export async function GET(request: Request) {
     // Use server-side pagination
     const { products, total } = await client.getAllProducts(page, pageSize);
 
-    return NextResponse.json({ products, total });
+    // Mapping is now done in ProductApiClient.getAllProducts
+    // const mappedProducts = products.map((product: any) => ({
+    //   ...product,
+    //   category: product.main_category,
+    //   // main_category: undefined, // Optionally remove original if not needed elsewhere by client
+    // }));
+
+    return NextResponse.json({ products, total }); // Return products directly
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to fetch products' }, { status: 500 });
   }

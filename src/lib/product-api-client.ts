@@ -12,6 +12,13 @@ interface UploadOptions {
   customProductTag?: string;
 }
 
+interface ProductUpdatePayload {
+  productName?: string;
+  productTag?: string[];
+  imagePath?: string;
+  category?: string;
+}
+
 class ProductApiClient {
   private supabase: SupabaseClient;
   private storageBucket: string;
@@ -50,7 +57,7 @@ class ProductApiClient {
 
       const { data: productData, error: productError } = await this.supabase
         .from('products')
-        .insert([{ product_name: productName, product_tag: productTag, image_path: fileName }])
+        .insert([{ product_name: productName, tags: [productTag], image_path: fileName }])
         .select();
 
       if (productError) throw productError;
@@ -63,86 +70,23 @@ class ProductApiClient {
     }
   }
 
-  async updateProduct(productId: number | string, updates: { productName?: string; productTag?: string; fileInput?: File | Blob } = {}) {
+  async updateProduct(productId: number | string, updates: ProductUpdatePayload) {
     try {
-      const { data: existingProduct, error: fetchError } = await this.supabase
-        .from('products')
-        .select('*')
-        .eq('id', productId)
-        .single();
+      const updateData: any = {};
+      if (updates.productName !== undefined) updateData.product_name = updates.productName;
+      if (updates.productTag !== undefined) updateData.tags = updates.productTag;
+      if (updates.imagePath !== undefined) updateData.image_path = updates.imagePath;
+      if (updates.category !== undefined) updateData.main_category = updates.category;
 
-      if (fetchError) throw fetchError;
-      if (!existingProduct) throw new Error(`Product with ID ${productId} not found`);
-
-      const updateData: Record<string, unknown> = {};
-      if (updates.productName) {
-        updateData.product_name = updates.productName;
-      }
-      if (updates.productTag) {
-        updateData.product_tag = updates.productTag;
-      }
-
-      let newImageUrl: string | null = null;
-      let oldImagePath: string | null = null;
-      
-      if (updates.fileInput) {
-        // Change let to const since these variables are never reassigned
-        const fileName = (updates.fileInput as File).name || `upload_${Date.now()}`;
-        const fileData = updates.fileInput;
-
-        // Upload new image
-        const { error: uploadError } = await this.supabase.storage
-          .from(this.storageBucket)
-          .upload(fileName, fileData, { cacheControl: '3600', upsert: true });
-
-        if (uploadError) throw uploadError;
-
-        const { data: urlData } = this.supabase.storage.from(this.storageBucket).getPublicUrl(fileName);
-        newImageUrl = urlData.publicUrl;
-
-        // Store the old image path for later deletion
-        oldImagePath = existingProduct.image_path;
-        updateData.image_path = fileName;
-      }
-
-      if (Object.keys(updateData).length === 0) {
-        return { success: false, message: 'No updates provided', product: existingProduct };
-      }
-
-      // Update the database
-      const { data: updatedProducts, error: updateError } = await this.supabase
+      const { data, error } = await this.supabase
         .from('products')
         .update(updateData)
         .eq('id', productId)
-        .select();
+        .select()
+        .single();
 
-      if (updateError) throw updateError;
-      if (!updatedProducts || updatedProducts.length === 0) {
-        throw new Error(`Product with ID ${productId} could not be updated`);
-      }
-
-      // Only delete the old image after successful database update
-      if (oldImagePath && oldImagePath !== updateData.image_path) {
-        const { error: deleteError } = await this.supabase.storage
-          .from(this.storageBucket)
-          .remove([oldImagePath]);
-
-        if (deleteError) {
-          // console.warn(`Failed to delete old image: ${oldImagePath}`, deleteError);
-          // Don't throw error here, as the update was successful
-        }
-      }
-
-      const updatedProduct = updatedProducts[0];
-      const imageUrl = newImageUrl || this.supabase.storage.from(this.storageBucket).getPublicUrl(updatedProduct.image_path).data.publicUrl;
-
-      return {
-        success: true,
-        message: 'Product updated successfully',
-        product: updatedProduct,
-        imageUrl,
-        updatedFields: Object.keys(updateData),
-      };
+      if (error) throw error;
+      return { success: true, product: data };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
@@ -191,8 +135,8 @@ class ProductApiClient {
     try {
       const { data, error } = await this.supabase
         .from('products')
-        .select('product_tag, image_path, product_name, id')
-        .ilike('product_tag', `%${query}%`);
+        .select('tags, image_path, product_name, id, main_category')
+        .filter('tags', 'cs', `{${query}}`);
 
       if (error) throw error;
 
@@ -204,6 +148,8 @@ class ProductApiClient {
             return {
               ...product,
               imageUrl: urlData.publicUrl,
+              product_tag: product.tags,
+              category: product.main_category,
             };
           })
         );
@@ -221,7 +167,7 @@ class ProductApiClient {
     try {
       const { data, error } = await this.supabase
         .from('products')
-        .select('product_name, product_tag, image_path, id')
+        .select('product_name, tags, image_path, id, main_category')
         .ilike('product_name', `%${query}%`);
 
       if (error) throw error;
@@ -234,6 +180,8 @@ class ProductApiClient {
             return {
               ...product,
               imageUrl: urlData.publicUrl,
+              product_tag: product.tags,
+              category: product.main_category,
             };
           })
         );
@@ -266,6 +214,8 @@ class ProductApiClient {
           return {
             ...product,
             imageUrl: urlData.publicUrl,
+            product_tag: product.tags,
+            category: product.main_category,
           };
         })
       );
@@ -285,7 +235,7 @@ class ProductApiClient {
     }
   }
 
-  async getProductById(id: number) {
+  async getProductById(id: string | number) {
     try {
       const { data, error } = await this.supabase
         .from('products')
@@ -300,9 +250,269 @@ class ProductApiClient {
       return {
         ...data,
         imageUrl: urlData.publicUrl,
+        product_tag: data.tags,
+        category: data.main_category,
       };
     } catch (error) {
       throw error instanceof Error ? error : new Error('Unknown error');
+    }
+  }
+
+  async getDistinctCategories() {
+    try {
+      // console.log("API Client: Starting getDistinctCategories...");
+      const { data, error } = await this.supabase
+        .from('products')
+        .select('main_category')
+        .not('main_category', 'is', null)
+        .neq('main_category', '')
+        .order('main_category');
+
+      if (error) {
+        // console.error("API Client: Error fetching categories:", error);
+        throw error;
+      }
+
+      if (!data) {
+        // console.log("API Client: No data returned");
+        return [];
+      }
+
+      // Get distinct, non-null, non-empty categories
+      const distinctCategories = Array.from(
+        new Set(
+          data
+            .map(item => item.main_category)
+            .filter(category => category && typeof category === 'string' && category.trim() !== '')
+        )
+      );
+
+      // console.log("API Client: Found categories:", distinctCategories);
+      // console.log("API Client: Raw data from DB:", data);
+      
+      return distinctCategories.sort();
+    } catch (error) {
+      // console.error("API Client: Error in getDistinctCategories:", error);
+      throw error; // Let the API route handle the error
+    }
+  }
+
+  async moveToTrash(productId: number | string) {
+    try {
+      // console.log('Moving product to trash:', productId);
+      // First, get the product details
+      const { data: product, error: fetchError } = await this.supabase
+        .from('products')
+        .select('*')
+        .eq('id', productId)
+        .single();
+
+      if (fetchError) throw fetchError;
+      if (!product) throw new Error(`Product with ID ${productId} not found`);
+
+      // console.log('Found product:', product);
+
+      // Move the image to trash bucket if it exists
+      if (product.image_path) {
+        const { data: fileData, error: downloadError } = await this.supabase.storage
+          .from(this.storageBucket)
+          .download(product.image_path);
+
+        if (!downloadError && fileData) {
+          // Upload to trash bucket
+          await this.supabase.storage
+            .from('product-trash')
+            .upload(product.image_path, fileData, { upsert: true });
+
+          // Delete from original bucket
+          await this.supabase.storage
+            .from(this.storageBucket)
+            .remove([product.image_path]);
+        }
+      }
+
+      // Generate new UUID for trash item
+      const trashId = crypto.randomUUID();
+
+      // Insert into product_trash table
+      const { error: trashError } = await this.supabase
+        .from('product_trash')
+        .insert([{
+          id: trashId,
+          product_id: product.id, // Use the original product's UUID
+          product_name: product.product_name,
+          tags: product.tags || [],
+          image_path: product.image_path || null,
+          main_category: product.main_category || null,
+          original_created_at: product.created_at || new Date().toISOString(),
+          deleted_at: new Date().toISOString(),
+          scheduled_deletion_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days from now
+        }]);
+
+      if (trashError) {
+        // console.error('Error moving to trash:', trashError);
+        throw trashError;
+      }
+
+      // Delete from products table
+      const { error: deleteError } = await this.supabase
+        .from('products')
+        .delete()
+        .eq('id', productId);
+
+      if (deleteError) throw deleteError;
+
+      return { success: true, message: `Product moved to trash successfully` };
+    } catch (error) {
+      // console.error('Error in moveToTrash:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  async moveMultipleToTrash(productIds: (number | string)[]) {
+    try {
+      const results = await Promise.all(productIds.map(id => this.moveToTrash(id)));
+      const allSuccessful = results.every(result => result.success);
+      const failedCount = results.filter(result => !result.success).length;
+
+      return {
+        success: allSuccessful,
+        message: allSuccessful 
+          ? 'All products moved to trash successfully' 
+          : `${failedCount} products failed to move to trash`,
+        results
+      };
+    } catch (error) {
+      // console.error('Error in moveMultipleToTrash:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  async getTrashItems(page = 1, pageSize = 20) {
+    try {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      const { data, error, count } = await this.supabase
+        .from('product_trash')
+        .select('*', { count: 'exact' })
+        .order('deleted_at', { ascending: false })
+        .range(from, to);
+
+      if (error) throw error;
+
+      const itemsWithUrls = await Promise.all(
+        (data || []).map(async (item) => {
+          let imageUrl = null;
+          if (item.image_path) {
+            const { data: urlData } = this.supabase.storage
+              .from('product-trash')
+              .getPublicUrl(item.image_path);
+            imageUrl = urlData.publicUrl;
+          }
+
+          return {
+            ...item,
+            imageUrl
+          };
+        })
+      );
+
+      return { items: itemsWithUrls, total: count ?? 0 };
+    } catch (error) {
+      throw error instanceof Error ? error : new Error('Unknown error');
+    }
+  }
+
+  async restoreFromTrash(trashItemId: number | string) {
+    try {
+      // Get the trash item
+      const { data: trashItem, error: fetchError } = await this.supabase
+        .from('product_trash')
+        .select('*')
+        .eq('id', trashItemId)
+        .single();
+
+      if (fetchError) throw fetchError;
+      if (!trashItem) throw new Error('Trash item not found');
+
+      // Move image back if it exists
+      if (trashItem.image_path) {
+        const { data: fileData, error: downloadError } = await this.supabase.storage
+          .from('product-trash')
+          .download(trashItem.image_path);
+
+        if (!downloadError && fileData) {
+          // Upload back to original bucket
+          await this.supabase.storage
+            .from(this.storageBucket)
+            .upload(trashItem.image_path, fileData, { upsert: true });
+
+          // Remove from trash bucket
+          await this.supabase.storage
+            .from('product-trash')
+            .remove([trashItem.image_path]);
+        }
+      }
+
+      // Insert back into products table
+      const { error: restoreError } = await this.supabase
+        .from('products')
+        .insert([{
+          id: trashItem.product_id,
+          product_name: trashItem.product_name,
+          tags: trashItem.tags || [],
+          image_path: trashItem.image_path || null,
+          main_category: trashItem.main_category || null,
+          created_at: trashItem.original_created_at || new Date().toISOString()
+        }]);
+
+      if (restoreError) throw restoreError;
+
+      // Delete from trash
+      const { error: deleteError } = await this.supabase
+        .from('product_trash')
+        .delete()
+        .eq('id', trashItemId);
+
+      if (deleteError) throw deleteError;
+
+      return { success: true, message: 'Product restored successfully' };
+    } catch (error) {
+      // console.error('Error in restoreFromTrash:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  async permanentlyDeleteFromTrash(trashItemId: number | string) {
+    try {
+      // Get the trash item first to get the image path
+      const { data: trashItem, error: fetchError } = await this.supabase
+        .from('product_trash')
+        .select('image_path')
+        .eq('id', trashItemId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Delete image from trash storage if it exists
+      if (trashItem?.image_path) {
+        await this.supabase.storage
+          .from('product-trash')
+          .remove([trashItem.image_path]);
+      }
+
+      // Delete the record from product_trash table
+      const { error: deleteError } = await this.supabase
+        .from('product_trash')
+        .delete()
+        .eq('id', trashItemId);
+
+      if (deleteError) throw deleteError;
+
+      return { success: true, message: 'Item permanently deleted' };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 }

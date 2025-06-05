@@ -25,7 +25,7 @@ const supabaseConfigs: Record<SupabaseInstance, SupabaseConfig> = {
 };
 
 // Create Supabase client based on instance
-export const createSupabaseClient = (instance: SupabaseInstance) => {
+export const createSupabaseClient = (instance: SupabaseInstance, useServiceRole = false) => {
   const config = supabaseConfigs[instance];
   if (!config.supabaseUrl || !config.supabaseKey || !config.supabaseStorageBucket) {
     throw new Error(`Missing Supabase configuration for ${instance}. Please check your .env file for:
@@ -33,9 +33,17 @@ export const createSupabaseClient = (instance: SupabaseInstance) => {
       - NEXT_PUBLIC_${instance.toUpperCase()}_SUPABASE_ANON_KEY)
       - NEXT_PUBLIC_${instance.toUpperCase()}_SUPABASE_STORAGE_BUCKET`);
   }
-  return createClient(config.supabaseUrl, config.supabaseKey);
+  
+  // Use service role key for admin access if specified
+  const key = useServiceRole 
+    ? process.env.DASHBOARD_SUPABASE_SERVICE_KEY || config.supabaseKey
+    : config.supabaseKey;
+    
+  return createClient(config.supabaseUrl, key);
 };
 
 // Export instances for direct use
 export const dashboardSupabase = createSupabaseClient('dashboard');
-export const productSupabase = createSupabaseClient('product');
+
+// Export admin client for user management
+export const dashboardAdminSupabase = createSupabaseClient('dashboard', true);

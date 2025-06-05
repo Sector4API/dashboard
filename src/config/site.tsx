@@ -1,4 +1,4 @@
-import { LayoutDashboard, ShoppingBag, FileText, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, ShoppingBag, FileText, User, LogOut, type LucideIcon } from "lucide-react";
 
 export type SiteConfig = typeof siteConfig;
 export type Navigation = {
@@ -28,4 +28,16 @@ export const navigations: Navigation[] = [
     name: "Templates",
     href: "/templates",
   },
+  {
+    icon: User,
+    name: "Users",
+    href: "/users",
+  },
 ];
+
+// Export logout configuration separately
+export const logoutNav: Navigation = {
+  icon: LogOut,
+  name: "Logout",
+  href: "/logout",
+};
