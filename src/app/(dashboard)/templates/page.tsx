@@ -2,13 +2,13 @@
 
 import * as React from 'react';
 import Image from 'next/image';
-import { createTemplate, getTemplates, deleteTemplate, updateTemplateAssets } from '@/lib/templates';
+import { createTemplate, getTemplates, deleteTemplate, updateTemplateAssets, updateTemplateOrder } from '@/lib/templates';
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast-provider';
 import { dashboardSupabase } from '@/lib/supabase';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Check } from "lucide-react";
+import { Check, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function TemplatesPage() {
@@ -32,6 +32,7 @@ export default function TemplatesPage() {
       y: number;
       rotation: number;
     };
+    display_order: number;
   }[]>([]);
   const [seasonalBadges, setSeasonalBadges] = React.useState([1, 2, 3]);
   const maxFileSize = 5 * 1024 * 1024; // 5MB in bytes
@@ -111,7 +112,7 @@ export default function TemplatesPage() {
       const { data, error } = await dashboardSupabase
         .from('templates')
         .select('*')
-        .range((page - 1) * 10, page * 10 - 1);
+        .order('display_order', { ascending: true });
   
       if (error) {
         addToast({
@@ -124,10 +125,13 @@ export default function TemplatesPage() {
   
       if (!data || data.length === 0) {
         setHasMoreTemplates(false);
+        setTemplates([]);
         return;
       }
   
-      setTemplates((prev) => (page === 1 ? data : [...prev, ...data]));
+      // Set all templates at once instead of paginating
+      setTemplates(data);
+      setHasMoreTemplates(false); // Disable infinite scroll since we're loading all at once
     } catch (error) {
       addToast({
         title: 'Error',
@@ -559,8 +563,68 @@ export default function TemplatesPage() {
       }
     };
 
-  const handleEdit = () => {
-    // Logic to navigate to the edit page or open an edit modal
+  const handleEdit = async (templateId: string) => {
+    setLoading(true);
+    setIsEditMode(true);
+    setEditingTemplateId(templateId);
+    try {
+      const { data: templateDetails, error } = await dashboardSupabase
+        .from('templates')
+        .select('name, description, category, tags, terms_section_background_color, product_section_background_color, product_card_background_color, global_text_color, header_image_path, thumbnail_path, seasonal_badge_paths')
+        .eq('id', templateId)
+        .single();
+  
+      if (error) {
+        addToast({
+          title: 'Error',
+          description: 'Failed to fetch template details.',
+          variant: 'error',
+        });
+        return;
+      }
+  
+      // Add cache-busting query param to force fresh fetch from backend
+      const cacheBuster = `?t=${Date.now()}`;
+      const formatImagePath = (path: string | null): string => {
+        if (!path) return '';
+        const base =
+          path.startsWith('http') || path.startsWith('/')
+            ? path
+            : `${process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_URL}/storage/v1/object/public/${process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET}/${path}`;
+        // Append cache buster
+        return base + cacheBuster;
+      };
+  
+      setFormData({
+        name: templateDetails.name,
+        description: templateDetails.description || '',
+        category: templateDetails.category || [],
+        tags: templateDetails.tags?.join(', ') || '',
+        terms_section_background_color: templateDetails.terms_section_background_color || '#ffffff',
+        product_section_background_color: templateDetails.product_section_background_color || '#ffffff',
+        product_card_background_color: templateDetails.product_card_background_color || '#ffffff',
+        global_text_color: templateDetails.global_text_color || '#000000',
+      });
+  
+      setFiles({
+        headerImage: null,
+        thumbnail: null,
+        seasonalBadges: [],
+        previews: {
+          headerImage: formatImagePath(templateDetails.header_image_path),
+          thumbnail: formatImagePath(templateDetails.thumbnail_path),
+          seasonalBadges: templateDetails.seasonal_badge_paths?.map(formatImagePath) || [],
+        },
+      });
+    } catch (err) {
+      addToast({
+        title: 'Error',
+        description: 'An unexpected error occurred.',
+        variant: 'error',
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const confirmDeleteTemplate = (id: string, folderPath: string) => {
@@ -698,8 +762,8 @@ export default function TemplatesPage() {
   const badgeRef = React.useRef<HTMLDivElement>(null);
 
   // Add drag handlers
-  const handleDragStart = (e: React.MouseEvent) => {
-    setIsDragging(true);
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => {
+    e.dataTransfer.setData('text/plain', index.toString());
   };
 
   const handleDrag = (e: React.MouseEvent) => {
@@ -754,8 +818,58 @@ export default function TemplatesPage() {
     });
   };
 
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>, dropIndex: number) => {
+    e.preventDefault();
+    const dragIndex = parseInt(e.dataTransfer.getData('text/plain'));
+    
+    if (dragIndex === dropIndex) return;
+
+    const newTemplates = [...templates];
+    const [draggedTemplate] = newTemplates.splice(dragIndex, 1);
+    newTemplates.splice(dropIndex, 0, draggedTemplate);
+
+    // Calculate new display orders
+    const updatedTemplates = newTemplates.map((template, index) => ({
+      ...template,
+      display_order: index + 1 // Start from 1 to maintain consistency with database
+    }));
+
+    // Optimistically update the UI
+    setTemplates(updatedTemplates);
+
+    try {
+      // Update the dragged template's order
+      await updateTemplateOrder(draggedTemplate.id, dropIndex + 1);
+
+      // Fetch fresh data to ensure consistency
+      const freshTemplates = await getTemplates();
+      if (freshTemplates) {
+        setTemplates(freshTemplates);
+      }
+
+      addToast({
+        title: 'Success',
+        description: 'Template order updated successfully.',
+        variant: 'success',
+      });
+    } catch (error) {
+      addToast({
+        title: 'Error',
+        description: 'Failed to update template order.',
+        variant: 'error',
+      });
+      // Revert to original order on error
+      const originalTemplates = await getTemplates();
+      setTemplates(originalTemplates || []);
+    }
+  };
+
   return (
-    <div className="w-full max-w-[1680px] mx-auto p-6">
+    <>
       {loading && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -824,130 +938,65 @@ export default function TemplatesPage() {
         {/* Templates List Section */}
         <div
           className="lg:w-[50%] w-full rounded-lg bg-white p-6 shadow-md dark:bg-slate-800"
-          style={{ maxHeight: '1500px', overflowY: 'auto' }}
-          onScroll={(e) => {
-            const target = e.target as HTMLElement;
-            if (
-              target.scrollHeight - target.scrollTop === target.clientHeight &&
-              !isLoadingMore &&
-              hasMoreTemplates
-            ) {
-              setPage((prevPage) => prevPage + 1); // Load more templates when scrolled to the bottom
-            }
-          }}
+          style={{ maxHeight: '1900px', overflowY: 'auto' }}
         >
           <h2 className="mb-6 text-2xl font-bold text-slate-800 dark:text-white">Templates List</h2>
           <div className="space-y-3">
-            {templates.map((template) => (
-              <div
-                key={template.id}
-                className="flex flex-col sm:flex-row items-center justify-between rounded-lg bg-slate-100 p-8 transition-all hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600"
-              >
-                <div className="flex items-center gap-8">
-                  <div className="h-32 w-32 rounded overflow-hidden">
-                    {template.thumbnail_path ? (
-                      <Image
-                        src={formatImagePath(template.thumbnail_path)}
-                        alt={template.name}
-                        width={128}
-                        height={128}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="h-full w-full bg-red-500"></div>
-                    )}
+            {templates.map((template, index) => {
+              // Ensure we have a unique key by combining id with index
+              const uniqueKey = `${template.id}-${index}`;
+              return (
+                <div
+                  key={uniqueKey}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, index)}
+                  onDragOver={handleDragOver}
+                  onDrop={(e) => handleDrop(e, index)}
+                  className="flex flex-col sm:flex-row items-center justify-between rounded-lg bg-slate-100 p-8 transition-all hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 cursor-move"
+                >
+                  <div className="flex items-center gap-8">
+                    <GripVertical className="h-6 w-6 text-slate-400" />
+                    <div className="h-32 w-32 rounded overflow-hidden">
+                      {template.thumbnail_path ? (
+                        <Image
+                          src={formatImagePath(template.thumbnail_path)}
+                          alt={template.name}
+                          width={128}
+                          height={128}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="h-full w-full bg-red-500"></div>
+                      )}
+                    </div>
+                    <span className="text-xl font-bold text-slate-800 dark:text-white">{template.name}</span>
                   </div>
-                  <span className="text-xl font-bold text-slate-800 dark:text-white">{template.name}</span>
+                  <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-4 mt-4 sm:mt-0">
+                    <button
+                      className={`rounded px-6 py-3 text-white ${template.is_public 
+                        ? 'bg-gray-400 cursor-not-allowed' 
+                        : 'bg-green-500 hover:bg-green-600'}`}
+                      onClick={() => handlePublish(template.id)}
+                      disabled={template.is_public}
+                    >
+                      {template.is_public ? 'Published' : 'Publish'}
+                    </button>
+                    <button
+                      className="rounded bg-blue-500 px-6 py-3 text-white hover:bg-blue-600"
+                      onClick={() => handleEdit(template.id)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="rounded bg-red-500 px-6 py-3 text-white hover:bg-red-600"
+                      onClick={() => confirmDeleteTemplate(template.id, template.thumbnail_path)}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
-                <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-4 mt-4 sm:mt-0">
-                  <button
-                    className={`rounded px-6 py-3 text-white ${template.is_public 
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-green-500 hover:bg-green-600'}`}
-                    onClick={() => handlePublish(template.id)}
-                    disabled={template.is_public}
-                  >
-                    {template.is_public ? 'Published' : 'Publish'}
-                  </button>
-                  <button
-                    className="rounded bg-blue-500 px-6 py-3 text-white hover:bg-blue-600"
-                    onClick={async () => {
-                      setLoading(true);
-                      setIsEditMode(true);
-                      setEditingTemplateId(template.id);
-                      try {
-                        const { data: templateDetails, error } = await dashboardSupabase
-                          .from('templates')
-                          .select('name, description, category, tags, terms_section_background_color, product_section_background_color, product_card_background_color, global_text_color, header_image_path, thumbnail_path, seasonal_badge_paths')
-                          .eq('id', template.id)
-                          .single();
-                    
-                        if (error) {
-                          // console.error('Error fetching template details:', error);
-                          addToast({
-                            title: 'Error',
-                            description: 'Failed to fetch template details.',
-                            variant: 'error',
-                          });
-                          return;
-                        }
-                    
-                        // Add cache-busting query param to force fresh fetch from backend
-                        const cacheBuster = `?t=${Date.now()}`;
-                        const formatImagePath = (path: string | null): string => {
-                          if (!path) return '';
-                          const base =
-                            path.startsWith('http') || path.startsWith('/')
-                              ? path
-                              : `${process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_URL}/storage/v1/object/public/${process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET}/${path}`;
-                          // Append cache buster
-                          return base + cacheBuster;
-                        };
-                    
-                        setFormData({
-                          name: templateDetails.name,
-                          description: templateDetails.description || '',
-                          category: templateDetails.category || [],
-                          tags: templateDetails.tags?.join(', ') || '',
-                          terms_section_background_color: templateDetails.terms_section_background_color || '#ffffff',
-                          product_section_background_color: templateDetails.product_section_background_color || '#ffffff',
-                          product_card_background_color: templateDetails.product_card_background_color || '#ffffff',
-                          global_text_color: templateDetails.global_text_color || '#000000',
-                        });
-                    
-                        setFiles({
-                          headerImage: null,
-                          thumbnail: null,
-                          seasonalBadges: [],
-                          previews: {
-                            headerImage: formatImagePath(templateDetails.header_image_path),
-                            thumbnail: formatImagePath(templateDetails.thumbnail_path),
-                            seasonalBadges: templateDetails.seasonal_badge_paths?.map(formatImagePath) || [],
-                          },
-                        });
-                      } catch (err) {
-                        // console.error('Unexpected error:', err);
-                        addToast({
-                          title: 'Error',
-                          description: 'An unexpected error occurred.',
-                          variant: 'error',
-                        });
-                      } finally {
-                        setLoading(false); // Hide loading screen
-                      }
-                    }}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="rounded bg-red-500 px-6 py-3 text-white hover:bg-red-600"
-                    onClick={() => confirmDeleteTemplate(template.id, template.thumbnail_path)}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {isLoadingMore && (
               <div className="flex justify-center py-4">
                 <div className="flex items-center gap-2">
@@ -1187,7 +1236,6 @@ export default function TemplatesPage() {
                       transform: `translate(-50%, -50%) rotate(${badgeRotation}deg)`,
                       cursor: isDragging ? 'grabbing' : 'grab'
                     }}
-                    onMouseDown={handleDragStart}
                   >
                     <Image
                       src={files.previews.seasonalBadges[0]}
@@ -1335,6 +1383,6 @@ export default function TemplatesPage() {
           </form>
         </div>
       </div>
-    </div>
+    </>
   );
 }

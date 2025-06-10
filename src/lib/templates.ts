@@ -51,6 +51,20 @@ export const createTemplate = async (input: TemplateInput) => {
   const uploadedFiles: string[] = [];
 
   try {
+    // Get the highest display_order
+    const { data: maxOrderResult, error: maxOrderError } = await dashboardSupabase
+      .from('templates')
+      .select('display_order')
+      .order('display_order', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (maxOrderError && maxOrderError.code !== 'PGRST116') { // PGRST116 is "no rows returned" error
+      throw maxOrderError;
+    }
+
+    const nextOrder = maxOrderResult ? maxOrderResult.display_order + 1 : 1;
+
     // Step 1: Create a temporary database record first
     const { data: tempTemplate, error: dbError } = await dashboardSupabase
       .from('templates')
@@ -65,7 +79,8 @@ export const createTemplate = async (input: TemplateInput) => {
         terms_section_background_color: input.terms_section_background_color,
         product_section_background_color: input.product_section_background_color,
         product_card_background_color: input.product_card_background_color,
-        global_text_color: input.global_text_color
+        global_text_color: input.global_text_color,
+        display_order: nextOrder
       })
       .select()
       .single();
@@ -189,7 +204,9 @@ export const getTemplates = async () => {
   try {
     const { data, error } = await dashboardSupabase
       .from('templates')
-      .select('id, name, thumbnail_path, is_public');
+      .select('*')
+      .order('display_order', { ascending: true })
+      .order('created_at', { ascending: true }); // Secondary sort by creation date
 
     if (error) {
       logger.error('Error fetching templates:', {
@@ -386,6 +403,60 @@ export const updateTemplateAssets = async (templateId: string, files: {
   } catch (error) {
     logger.error('Error updating template assets:', {
       message: error instanceof Error ? error.message : 'Unknown error',
+      details: error
+    });
+    throw error;
+  }
+};
+
+export const updateTemplateOrder = async (templateId: string, newOrder: number) => {
+  try {
+    // First, get the current order of the template
+    const { data: currentTemplate, error: fetchError } = await dashboardSupabase
+      .from('templates')
+      .select('display_order')
+      .eq('id', templateId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    // Update all templates that need to be reordered
+    if (currentTemplate) {
+      const oldOrder = currentTemplate.display_order;
+      
+      if (oldOrder < newOrder) {
+        // Moving down: decrease order of templates in between
+        await dashboardSupabase.rpc('reorder_templates_down', {
+          p_template_id: templateId,
+          p_old_order: oldOrder,
+          p_new_order: newOrder
+        });
+      } else if (oldOrder > newOrder) {
+        // Moving up: increase order of templates in between
+        await dashboardSupabase.rpc('reorder_templates_up', {
+          p_template_id: templateId,
+          p_old_order: oldOrder,
+          p_new_order: newOrder
+        });
+      }
+    }
+
+    // Update the template's order
+    const { error: updateError } = await dashboardSupabase
+      .from('templates')
+      .update({ display_order: newOrder })
+      .eq('id', templateId);
+
+    if (updateError) {
+      logger.error('Error updating template order:', {
+        message: 'Database Error',
+        details: updateError
+      });
+      throw updateError;
+    }
+  } catch (error) {
+    logger.error('Error in updateTemplateOrder:', {
+      message: 'Unknown error',
       details: error
     });
     throw error;
