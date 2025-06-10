@@ -26,10 +26,15 @@ export default function TemplatesPage() {
     product_card_background_color?: string; 
     global_text_color?: string; 
     headerImage?: string; 
-    seasonalBadges?: string[]; 
+    seasonalBadges?: string[];
+    badge_position?: {
+      x: number;
+      y: number;
+      rotation: number;
+    };
   }[]>([]);
   const [seasonalBadges, setSeasonalBadges] = React.useState([1, 2, 3]);
-  const maxFileSize = 10 * 1024 * 1024; // 10MB in bytes
+  const maxFileSize = 5 * 1024 * 1024; // 5MB in bytes
   const [isDialogOpen, setIsDialogOpen] = React.useState(false); // State for confirmation dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const [templateToDelete, setTemplateToDelete] = React.useState<{ id: string; folderPath: string } | null>(null);
@@ -252,22 +257,11 @@ export default function TemplatesPage() {
         if (existingTemplate) {
           addToast({
             title: 'Error',
-            description: 'A template with this name already exists. Please enter a new name.',
+            description: 'A template with this name already exists.',
             variant: 'error',
           });
           return;
         }
-      }
-
-      // Validate required files
-      if (!files.headerImage || !files.thumbnail) {
-        addToast({
-          title: 'Error',
-          description: 'Please upload header image and thumbnail',
-          variant: 'error',
-        });
-        setLoading(false);
-        return;
       }
 
       const seasonalBadgeFiles = files.seasonalBadges.filter(Boolean);
@@ -282,14 +276,24 @@ export default function TemplatesPage() {
       }
 
       try {
-        await createTemplate({
+        const baseData = {
           ...formData,
           tags: formData.tags.split(',').map(tag => tag.trim()),
-          headerImage: files.headerImage,
-          thumbnail: files.thumbnail,
-          seasonalBadges: seasonalBadgeFiles,
           product_section_background_color: formData.product_section_background_color,
           product_card_background_color: formData.product_card_background_color,
+          badge_position: {
+            x: 50,
+            y: 50,
+            rotation: 0
+          }
+        };
+
+        // Create template with required files
+        await createTemplate({
+          ...baseData,
+          headerImage: files.headerImage as File,
+          thumbnail: files.thumbnail as File,
+          seasonalBadges: seasonalBadgeFiles.filter(Boolean) as File[]
         });
 
         addToast({
@@ -343,82 +347,41 @@ export default function TemplatesPage() {
       setLoading(false);
     }
   };
+
   const handleUpdate = async () => {
-    if (!editingTemplateId) return;
     setLoading(true);
     try {
-      // First, handle file updates if new files are selected
+      if (!editingTemplateId) return;
+
+      // Update template data including badge position
+      const { error: updateError } = await dashboardSupabase
+        .from('templates')
+        .update({
+          ...formData,
+          tags: formData.tags.split(',').map(tag => tag.trim()),
+          badge_position: {
+            x: badgePosition.x,
+            y: badgePosition.y,
+            rotation: badgeRotation
+          }
+        })
+        .eq('id', editingTemplateId);
+
+      if (updateError) throw updateError;
+
+      // Update assets if changed
       if (files.headerImage || files.thumbnail || files.seasonalBadges.length > 0) {
-        const updatedPaths = await updateTemplateAssets(editingTemplateId, {
+        await updateTemplateAssets(editingTemplateId, {
           headerImage: files.headerImage,
           thumbnail: files.thumbnail,
           seasonalBadges: files.seasonalBadges,
-          replaceExisting: true // Add this flag to indicate we want to replace existing files
+          replaceExisting: true
         });
-
-        // Update the template record with new file paths
-        const updatePayload = {
-          description: formData.description,
-          category: formData.category,
-          tags: formData.tags.split(',').map(tag => tag.trim()),
-          terms_section_background_color: formData.terms_section_background_color,
-          product_section_background_color: formData.product_section_background_color,
-          product_card_background_color: formData.product_card_background_color,
-          global_text_color: formData.global_text_color,
-          header_image_path: updatedPaths.headerImagePath || undefined,
-          thumbnail_path: updatedPaths.thumbnailPath || undefined,
-          seasonal_badge_paths: updatedPaths.seasonalBadgePaths || undefined
-        };
-
-        const { error: updateError } = await dashboardSupabase
-          .from('templates')
-          .update(updatePayload)
-          .eq('id', editingTemplateId);
-
-        if (updateError) throw updateError;
-      } else {
-        // If no new files, just update the non-file fields
-        const { error: updateError } = await dashboardSupabase
-          .from('templates')
-          .update({
-            description: formData.description,
-            category: formData.category,
-            tags: formData.tags.split(',').map(tag => tag.trim()),
-            terms_section_background_color: formData.terms_section_background_color,
-            product_section_background_color: formData.product_section_background_color,
-            product_card_background_color: formData.product_card_background_color,
-            global_text_color: formData.global_text_color,
-          })
-          .eq('id', editingTemplateId);
-
-        if (updateError) throw updateError;
       }
 
-      // Reset form and states
-      setFormData({
-        name: '',
-        description: '',
-        category: [],
-        tags: '',
-        terms_section_background_color: '#ffffff',
-        product_section_background_color: '#ffffff',
-        product_card_background_color: '#ffffff',
-        global_text_color: '#000000',
-      });
-      setFiles({
-        headerImage: null,
-        thumbnail: null,
-        seasonalBadges: [],
-        previews: {
-          headerImage: '',
-          thumbnail: '',
-          seasonalBadges: [],
-        },
-      });
+      // Reset states and fetch updated templates
       setIsEditMode(false);
       setEditingTemplateId(null);
-
-      // Refresh templates list
       const updatedTemplates = await getTemplates();
       setTemplates(updatedTemplates || []);
 
@@ -428,13 +391,75 @@ export default function TemplatesPage() {
         variant: 'success',
       });
     } catch (error) {
+      console.error('Error updating template:', error);
       addToast({
         title: 'Error',
-        description: 'Failed to update template. Please try again.',
+        description: 'Failed to update template',
         variant: 'error',
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Add effect to load badge position when editing template
+  React.useEffect(() => {
+    if (editingTemplateId && templates.length > 0) {
+      const template = templates.find(t => t.id === editingTemplateId);
+      if (template?.badge_position) {
+        setBadgePosition({
+          x: template.badge_position.x,
+          y: template.badge_position.y
+        });
+        setBadgeRotation(template.badge_position.rotation);
+      } else {
+        // Reset to default position if no saved position
+        setBadgePosition({ x: 50, y: 50 });
+        setBadgeRotation(0);
+      }
+    }
+  }, [editingTemplateId, templates]);
+
+  // Update position handlers to trigger template update
+  const handlePositionChange = (newPosition: { x: number; y: number }) => {
+    setBadgePosition(newPosition);
+    if (editingTemplateId) {
+      dashboardSupabase
+        .from('templates')
+        .update({
+          badge_position: {
+            x: newPosition.x,
+            y: newPosition.y,
+            rotation: badgeRotation
+          }
+        })
+        .eq('id', editingTemplateId)
+        .then(({ error }) => {
+          if (error) {
+            console.error('Error updating badge position:', error);
+          }
+        });
+    }
+  };
+
+  const handleRotationChange = (newRotation: number) => {
+    setBadgeRotation(newRotation);
+    if (editingTemplateId) {
+      dashboardSupabase
+        .from('templates')
+        .update({
+          badge_position: {
+            x: badgePosition.x,
+            y: badgePosition.y,
+            rotation: newRotation
+          }
+        })
+        .eq('id', editingTemplateId)
+        .then(({ error }) => {
+          if (error) {
+            console.error('Error updating badge rotation:', error);
+          }
+        });
     }
   };
 
@@ -667,8 +692,70 @@ export default function TemplatesPage() {
     );
   };
 
+  // Add new state for badge position
+  const [badgePosition, setBadgePosition] = React.useState({ x: 50, y: 50 }); // Center position in percentage
+  const [isDragging, setIsDragging] = React.useState(false);
+  const badgeRef = React.useRef<HTMLDivElement>(null);
+
+  // Add drag handlers
+  const handleDragStart = (e: React.MouseEvent) => {
+    setIsDragging(true);
+  };
+
+  const handleDrag = (e: React.MouseEvent) => {
+    if (!isDragging || !badgeRef.current) return;
+    
+    const previewBox = badgeRef.current.parentElement?.getBoundingClientRect();
+    if (!previewBox) return;
+
+    const x = ((e.clientX - previewBox.left) / previewBox.width) * 100;
+    const y = ((e.clientY - previewBox.top) / previewBox.height) * 100;
+
+    const constrainedX = Math.max(5, Math.min(95, x));
+    const constrainedY = Math.max(5, Math.min(95, y));
+
+    handlePositionChange({ x: constrainedX, y: constrainedY });
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+  };
+
+  // Add event listeners for drag outside the badge
+  React.useEffect(() => {
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging) {
+        e.preventDefault();
+        handleDrag(e as unknown as React.MouseEvent);
+      }
+    };
+
+    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mousemove', handleMouseMove);
+
+    return () => {
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, [isDragging]);
+
+  // Add rotation state
+  const [badgeRotation, setBadgeRotation] = React.useState(0);
+  
+  // Add rotation control function
+  const handleRotation = (direction: 'clockwise' | 'counterclockwise') => {
+    setBadgeRotation(prev => {
+      const change = direction === 'clockwise' ? 15 : -15;
+      return (prev + change) % 360;
+    });
+  };
+
   return (
-    <div className="container mx-auto p-6">
+    <div className="w-full max-w-[1680px] mx-auto p-6">
       {loading && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -736,8 +823,8 @@ export default function TemplatesPage() {
       <div className="flex flex-col lg:flex-row gap-4">
         {/* Templates List Section */}
         <div
-          className="lg:w-[60%] w-full rounded-lg bg-white p-6 shadow-md dark:bg-slate-800"
-          style={{ maxHeight: '1500px', overflowY: 'auto' }} // Increased height to 1000px
+          className="lg:w-[50%] w-full rounded-lg bg-white p-6 shadow-md dark:bg-slate-800"
+          style={{ maxHeight: '1500px', overflowY: 'auto' }}
           onScroll={(e) => {
             const target = e.target as HTMLElement;
             if (
@@ -873,7 +960,7 @@ export default function TemplatesPage() {
         </div>
 
         {/* Create/Update Template Form Section */}
-        <div className="lg:w-[40%] w-full rounded-lg bg-white p-6 shadow-md dark:bg-slate-800">
+        <div className="lg:w-[50%] w-full rounded-lg bg-white p-6 shadow-md dark:bg-slate-800">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
               {isEditMode ? 'Update Template' : 'Create Template'}
@@ -965,7 +1052,7 @@ export default function TemplatesPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                       </svg>
                       <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Max size: 10MB</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Max size: 5MB</p>
                     </div>
                     <input 
                       type="file" 
@@ -995,7 +1082,7 @@ export default function TemplatesPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                       </svg>
                       <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Max size: 10MB</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Max size: 5MB</p>
                     </div>
                     <input 
                       type="file" 
@@ -1046,7 +1133,7 @@ export default function TemplatesPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                           </svg>
                           <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">Max size: 10MB</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">Max size: 5MB</p>
                         </div>
                         <input 
                           type="file" 
@@ -1066,6 +1153,115 @@ export default function TemplatesPage() {
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* Preview Window */}
+            <div className="space-y-3 mt-6">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Template Preview:</label>
+              <div className="w-full h-[400px] rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-700 overflow-hidden relative">
+                {/* Header Image Preview */}
+                <div className="w-full h-full relative">
+                  {files.previews.headerImage ? (
+                    <Image
+                      src={files.previews.headerImage}
+                      alt="Header Preview"
+                      layout="fill"
+                      objectFit="cover"
+                      className="rounded-lg"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-slate-200 dark:bg-slate-600">
+                      <p className="text-sm text-slate-500 dark:text-slate-400">Header Image Preview</p>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Draggable Seasonal Badge Preview */}
+                {files.previews.seasonalBadges[0] && (
+                  <div
+                    ref={badgeRef}
+                    className="absolute w-16 h-16 rounded-full overflow-hidden border-2 border-white cursor-move"
+                    style={{
+                      left: `${badgePosition.x}%`,
+                      top: `${badgePosition.y}%`,
+                      transform: `translate(-50%, -50%) rotate(${badgeRotation}deg)`,
+                      cursor: isDragging ? 'grabbing' : 'grab'
+                    }}
+                    onMouseDown={handleDragStart}
+                  >
+                    <Image
+                      src={files.previews.seasonalBadges[0]}
+                      alt="First Seasonal Badge"
+                      layout="fill"
+                      objectFit="cover"
+                      draggable={false}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Position and Rotation Controls */}
+              {files.previews.seasonalBadges[0] && (
+                <div className="flex flex-col gap-2 mt-2">
+                  {/* Position Display */}
+                  <div className="flex items-center gap-4 p-3 bg-slate-100 rounded-lg dark:bg-slate-700">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-200">X:</span>
+                      <span className="px-2 py-1 bg-white rounded dark:bg-slate-600 text-sm">
+                        {Math.round(badgePosition.x)}%
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Y:</span>
+                      <span className="px-2 py-1 bg-white rounded dark:bg-slate-600 text-sm">
+                        {Math.round(badgePosition.y)}%
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handlePositionChange({ x: 50, y: 50 })}
+                      className="ml-auto text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      Reset Position
+                    </button>
+                  </div>
+
+                  {/* Rotation Controls */}
+                  <div className="flex items-center gap-4 p-3 bg-slate-100 rounded-lg dark:bg-slate-700">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Rotation:</span>
+                      <span className="px-2 py-1 bg-white rounded dark:bg-slate-600 text-sm">
+                        {badgeRotation}°
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 ml-4">
+                      <button
+                        type="button"
+                        onClick={() => handleRotationChange((badgeRotation - 15 + 360) % 360)}
+                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"
+                        title="Rotate Counterclockwise"
+                      >
+                        -15°
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRotationChange((badgeRotation + 15) % 360)}
+                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"
+                        title="Rotate Clockwise"
+                      >
+                        +15°
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRotationChange(0)}
+                        className="ml-2 text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+                      >
+                        Reset Rotation
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Tags */}

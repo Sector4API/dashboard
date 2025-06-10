@@ -135,21 +135,37 @@ class ProductApiClient {
     try {
       const lowercaseQuery = query.toLowerCase();
 
-      // First, search by tags
-      const { data: tagResults, error: tagError } = await this.supabase
-        .from('products')
-        .select('tags, image_path, product_name, id, main_category')
-        .filter('tags', 'cs', `{${query}}`);
-
-      if (tagError) throw tagError;
+      // Log the search URL for name-based search
+      console.log(`Search URL: ${this.supabase.from('products').select('product_name,tags,image_path,id,main_category').ilike('product_name', `%${query}%`).url}`);
 
       // Then, search by product name
       const { data: nameResults, error: nameError } = await this.supabase
         .from('products')
-        .select('tags, image_path, product_name, id, main_category')
+        .select('product_name,tags,image_path,id,main_category')
         .ilike('product_name', `%${query}%`);
 
-      if (nameError) throw nameError;
+      if (nameError) {
+        console.error('Name search error:', nameError);
+        throw nameError;
+      }
+
+      // Log the search URL for tag-based search
+      console.log(`Tag search URL: ${this.supabase.from('products').select('product_name,tags,image_path,id,main_category').filter('tags', 'cs', `{${query}}`).url}`);
+
+      // Search by tags
+      const { data: tagResults, error: tagError } = await this.supabase
+        .from('products')
+        .select('product_name,tags,image_path,id,main_category')
+        .filter('tags', 'cs', `{${query}}`);
+
+      if (tagError) {
+        console.error('Tag search error:', tagError);
+        throw tagError;
+      }
+
+      // Log the results
+      console.log('Name search results:', nameResults?.length || 0, 'results');
+      console.log('Tag search results:', tagResults?.length || 0, 'results');
 
       // Combine and deduplicate results
       const combinedResults = [...(tagResults || [])];
@@ -200,11 +216,14 @@ class ProductApiClient {
           return aName.localeCompare(bName);
         });
 
+        console.log('Final combined and sorted results:', sortedProducts.length, 'results');
         return { found: true, products: sortedProducts, count: sortedProducts.length };
       } else {
+        console.log('No results found for query:', query);
         return { found: false, message: `No products found matching "${query}"` };
       }
     } catch (error) {
+      console.error('Search error:', error);
       return { found: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
