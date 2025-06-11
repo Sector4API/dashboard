@@ -8,8 +8,17 @@ import { useToast } from '@/components/ui/toast-provider';
 import { dashboardSupabase } from '@/lib/supabase';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Check, GripVertical } from "lucide-react";
+import { Check, GripVertical, Minus, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+
+interface BadgePosition {
+  x: number;
+  y: number;
+  rotation: number;
+  scale: number;
+}
 
 export default function TemplatesPage() {
   const { addToast } = useToast();
@@ -31,6 +40,7 @@ export default function TemplatesPage() {
       x: number;
       y: number;
       rotation: number;
+      scale: number;
     };
     display_order: number;
     created_at: string;
@@ -237,32 +247,32 @@ export default function TemplatesPage() {
           return;
         }
 
-        if (type === 'seasonalBadge' && typeof index === 'number') {
-          setFiles(prev => {
-            const newBadges = [...prev.seasonalBadges];
-            const newPreviews = [...prev.previews.seasonalBadges];
-            
-            while (newBadges.length <= index) {
-              newBadges.push(null);
-              newPreviews.push('');
-            }
-            
-            newBadges[index] = file;
-            newPreviews[index] = fileURL;
-            
-            return {
-              ...prev,
-              seasonalBadges: newBadges,
-              previews: { ...prev.previews, seasonalBadges: newPreviews }
-            };
-          });
-        } else if (type === 'headerImage' || type === 'thumbnail' || type === 'dateImage') {
-          setFiles(prev => ({
+      if (type === 'seasonalBadge' && typeof index === 'number') {
+        setFiles(prev => {
+          const newBadges = [...prev.seasonalBadges];
+          const newPreviews = [...prev.previews.seasonalBadges];
+          
+          while (newBadges.length <= index) {
+            newBadges.push(null);
+            newPreviews.push('');
+          }
+          
+          newBadges[index] = file;
+          newPreviews[index] = fileURL;
+          
+          return {
             ...prev,
-            [type]: file,
-            previews: { ...prev.previews, [type]: fileURL }
-          }));
-        }
+            seasonalBadges: newBadges,
+            previews: { ...prev.previews, seasonalBadges: newPreviews }
+          };
+        });
+        } else if (type === 'headerImage' || type === 'thumbnail' || type === 'dateImage') {
+        setFiles(prev => ({
+          ...prev,
+          [type]: file,
+          previews: { ...prev.previews, [type]: fileURL }
+        }));
+      }
       };
     }
   };
@@ -283,13 +293,13 @@ export default function TemplatesPage() {
       }
 
       if (!files.headerImage || !files.thumbnail || !files.dateImage) {
-        addToast({
-          title: 'Error',
+          addToast({
+            title: 'Error',
           description: 'Please upload all required images (Header, Thumbnail, and Date)',
-          variant: 'error',
-        });
+            variant: 'error',
+          });
         setLoading(false);
-        return;
+          return;
       }
 
       const seasonalBadgeFiles = files.seasonalBadges.filter(Boolean);
@@ -312,7 +322,8 @@ export default function TemplatesPage() {
           badge_position: {
             x: 50,
             y: 50,
-            rotation: 0
+            rotation: 0,
+            scale: 1
           }
         };
 
@@ -386,17 +397,76 @@ export default function TemplatesPage() {
     try {
       if (!editingTemplateId) return;
 
-      // Update template data including badge position and set is_public to false
-      const updatedTemplates = await handleTemplateUpdate(editingTemplateId, {
-        ...formData,
-        tags: formData.tags.split(',').map(tag => tag.trim()),
-        badge_position: {
-          x: badgePosition.x,
-          y: badgePosition.y,
-          rotation: badgeRotation
-        },
-        is_public: false // Set to unpublished when edited
-      });
+      // Check if the new name is different from any other template (except current one)
+      if (formData.name.trim()) {
+        const { data: existingTemplate, error: nameCheckError } = await dashboardSupabase
+          .from('templates')
+          .select('id')
+          .eq('name', formData.name)
+          .neq('id', editingTemplateId)
+          .maybeSingle();
+
+        if (nameCheckError) {
+          addToast({
+            title: 'Error',
+            description: 'Failed to check template name availability.',
+            variant: 'error',
+          });
+          setLoading(false);
+          return;
+        }
+
+        if (existingTemplate) {
+          addToast({
+            title: 'Error',
+            description: 'A template with this name already exists.',
+            variant: 'error',
+          });
+          setLoading(false);
+          return;
+        }
+      } else {
+        addToast({
+          title: 'Error',
+          description: 'Template name cannot be empty.',
+          variant: 'error',
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Update template data including name
+      const { error: updateError } = await dashboardSupabase
+        .from('templates')
+        .update({
+          name: formData.name,
+          description: formData.description,
+          category: formData.category,
+          tags: formData.tags.split(',').map(tag => tag.trim()),
+          terms_section_background_color: formData.terms_section_background_color,
+          product_section_background_color: formData.product_section_background_color,
+          product_card_background_color: formData.product_card_background_color,
+          global_text_color: formData.global_text_color,
+          badge_position: {
+            x: badgePosition.x,
+            y: badgePosition.y,
+            rotation: badgeRotation,
+            scale: badgeScale
+          },
+          updated_at: new Date().toISOString(),
+          is_public: false // Set to unpublished when edited
+        })
+        .eq('id', editingTemplateId);
+
+      if (updateError) {
+        addToast({
+          title: 'Error',
+          description: 'Failed to update template.',
+          variant: 'error',
+        });
+        setLoading(false);
+        return;
+      }
 
       // Update assets if changed
       if (files.headerImage || files.thumbnail || files.dateImage || files.seasonalBadges.length > 0) {
@@ -409,7 +479,7 @@ export default function TemplatesPage() {
         });
       }
 
-      // Reset form data
+      // Reset form and state
       setFormData({
         name: '',
         description: '',
@@ -421,7 +491,6 @@ export default function TemplatesPage() {
         global_text_color: '#000000'
       });
 
-      // Reset files
       setFiles({
         headerImage: null,
         thumbnail: null,
@@ -435,31 +504,23 @@ export default function TemplatesPage() {
         }
       });
 
-      // Reset badge position and rotation
-      setBadgePosition({ x: 50, y: 50 });
-      setBadgeRotation(0);
-      setBadgeScale(1);
-
-      // Reset seasonal badges
-      setSeasonalBadges([1, 2, 3]);
-
-      // Reset edit mode states
       setIsEditMode(false);
       setEditingTemplateId(null);
 
-      // Update templates list with the returned updated templates
+      // Fetch updated templates
+      const updatedTemplates = await getTemplates();
       setTemplates(updatedTemplates || []);
 
       addToast({
         title: 'Success',
-        description: 'Template updated successfully! Note: Template has been unpublished.',
+        description: 'Template updated successfully!',
         variant: 'success',
       });
     } catch (error) {
       console.error('Error updating template:', error);
       addToast({
         title: 'Error',
-        description: 'Failed to update template',
+        description: error instanceof Error ? error.message : 'Failed to update template',
         variant: 'error',
       });
     } finally {
@@ -472,15 +533,18 @@ export default function TemplatesPage() {
     if (editingTemplateId && templates.length > 0) {
       const template = templates.find(t => t.id === editingTemplateId);
       if (template?.badge_position) {
+        const position = template.badge_position as BadgePosition;
         setBadgePosition({
-          x: template.badge_position.x,
-          y: template.badge_position.y
+          x: Math.round(position.x),
+          y: Math.round(position.y)
         });
-        setBadgeRotation(template.badge_position.rotation);
+        setBadgeRotation(position.rotation || 0);
+        setBadgeScale(parseFloat((position.scale || 1).toFixed(1)));
       } else {
         // Reset to default position if no saved position
         setBadgePosition({ x: 50, y: 50 });
         setBadgeRotation(0);
+        setBadgeScale(1);
       }
     }
   }, [editingTemplateId, templates]);
@@ -493,38 +557,78 @@ export default function TemplatesPage() {
   const previewRef = React.useRef<HTMLDivElement>(null);
   const lastUpdateRef = React.useRef<number>(0);
 
-  const updateBadgePosition = React.useCallback((newPosition: { x: number; y: number }) => {
-    setBadgePosition(newPosition);
+  const updateBadgePosition = ({ x, y }: { x: number; y: number }) => {
+    const roundedX = Math.round(x);
+    const roundedY = Math.round(y);
     
-    // Throttle database updates to maximum once every 500ms
+    setBadgePosition({ 
+      x: roundedX, 
+      y: roundedY 
+    });
+
+    // Throttle database updates
     const now = Date.now();
-    if (now - lastUpdateRef.current >= 500) {
-      lastUpdateRef.current = now;
-      
-    if (editingTemplateId) {
+    if (now - lastUpdateRef.current > 500) {
+      const updatedBadgePosition: BadgePosition = {
+        x: roundedX,
+        y: roundedY,
+        rotation: badgeRotation,
+        scale: parseFloat(badgeScale.toFixed(1))
+      };
+
       dashboardSupabase
         .from('templates')
         .update({
-          badge_position: {
-            x: newPosition.x,
-            y: newPosition.y,
-            rotation: badgeRotation
-          }
+          badge_position: updatedBadgePosition,
+          updated_at: new Date().toISOString()
         })
-        .eq('id', editingTemplateId)
-        .then(({ error }) => {
-          if (error) {
-            console.error('Error updating badge position:', error);
-          }
-        });
+        .eq('id', editingTemplateId);
+      lastUpdateRef.current = now;
     }
-    }
-  }, [editingTemplateId, badgeRotation]);
+  };
 
-  const handleBadgeMouseDown = (e: React.MouseEvent) => {
+  const handleBadgeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
-    e.stopPropagation();
     setIsDragging(true);
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!previewRef.current) return;
+
+      const rect = previewRef.current.getBoundingClientRect();
+      const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+      const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+
+      // Ensure x and y are within bounds (0-100)
+      const boundedX = Math.max(0, Math.min(100, x));
+      const boundedY = Math.max(0, Math.min(100, y));
+
+      updateBadgePosition({ x: boundedX, y: boundedY });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+
+      // Update database with final position including scale
+      const updatedBadgePosition: BadgePosition = {
+        x: Math.round(badgePosition.x),
+        y: Math.round(badgePosition.y),
+        rotation: badgeRotation,
+        scale: parseFloat(badgeScale.toFixed(1))
+      };
+
+      dashboardSupabase
+        .from('templates')
+        .update({
+          badge_position: updatedBadgePosition,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingTemplateId);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
   };
 
   const handleBadgeMouseMove = React.useCallback((e: MouseEvent) => {
@@ -648,16 +752,54 @@ export default function TemplatesPage() {
 
   // Add scale state
   const [badgeScale, setBadgeScale] = React.useState(1);
-  const MIN_SCALE = 0.5;
-  const MAX_SCALE = 2;
+  const SCALE_STEP = 0.1;
 
-  // Add scale control function
-  const handleScaleChange = (change: number) => {
-    setBadgeScale(prev => {
-      const newScale = Math.round((prev + change) * 10) / 10; // Round to 1 decimal place
-      return Math.min(Math.max(newScale, MIN_SCALE), MAX_SCALE);
-    });
+  const handleScaleChange = (value: number[]) => {
+    const newScale = parseFloat(value[0].toFixed(1));
+    setBadgeScale(newScale);
+    
+    const updatedBadgePosition: BadgePosition = {
+      x: Math.round(badgePosition.x),
+      y: Math.round(badgePosition.y),
+      rotation: badgeRotation,
+      scale: newScale
+    };
+      
+    // Throttle database updates
+    const now = Date.now();
+    if (now - lastUpdateRef.current > 500) {
+      dashboardSupabase
+        .from('templates')
+        .update({
+          badge_position: updatedBadgePosition,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingTemplateId);
+      lastUpdateRef.current = now;
+    }
   };
+
+  const handleScaleButtonClick = (increment: boolean) => {
+    const newScale = parseFloat((increment ? badgeScale + SCALE_STEP : badgeScale - SCALE_STEP).toFixed(1));
+    if (newScale > 0) {
+      setBadgeScale(newScale);
+      
+      const updatedBadgePosition: BadgePosition = {
+        x: Math.round(badgePosition.x),
+        y: Math.round(badgePosition.y),
+        rotation: badgeRotation,
+        scale: newScale
+      };
+      
+      dashboardSupabase
+        .from('templates')
+        .update({
+          badge_position: updatedBadgePosition,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingTemplateId);
+        }
+      };
 
   const handleConfirm = async () => {
     setIsDialogOpen(false);
@@ -698,15 +840,16 @@ export default function TemplatesPage() {
 
   const handleEdit = async (templateId: string) => {
     setLoading(true);
-    setIsEditMode(true);
     setEditingTemplateId(templateId);
+    setIsEditMode(true);
+
     try {
       const { data: templateDetails, error } = await dashboardSupabase
-        .from('templates')
-        .select('name, description, category, tags, terms_section_background_color, product_section_background_color, product_card_background_color, global_text_color, header_image_path, thumbnail_path, date_image_path, seasonal_badge_paths, badge_position')
+          .from('templates')
+        .select('*')
         .eq('id', templateId)
         .single();
-
+  
       if (error) {
         addToast({
           title: 'Error',
@@ -716,6 +859,7 @@ export default function TemplatesPage() {
         return;
       }
 
+      // Set form data
       setFormData({
         name: templateDetails.name,
         description: templateDetails.description || '',
@@ -727,15 +871,18 @@ export default function TemplatesPage() {
         global_text_color: templateDetails.global_text_color || '#000000',
       });
 
-      // Set badge position and rotation if available
+      // Set badge position and scale
       if (templateDetails.badge_position) {
+        const position = templateDetails.badge_position as BadgePosition;
         setBadgePosition({
-          x: templateDetails.badge_position.x,
-          y: templateDetails.badge_position.y
+          x: Math.round(position.x),
+          y: Math.round(position.y)
         });
-        setBadgeRotation(templateDetails.badge_position.rotation || 0);
+        setBadgeRotation(position.rotation || 0);
+        setBadgeScale(parseFloat((position.scale || 1).toFixed(1)));
       }
 
+      // Set file previews
       setFiles({
         headerImage: null,
         thumbnail: null,
@@ -749,14 +896,14 @@ export default function TemplatesPage() {
         }
       });
     } catch (err) {
-      addToast({
-        title: 'Error',
+        addToast({
+          title: 'Error',
         description: 'An unexpected error occurred.',
-        variant: 'error',
-      });
+          variant: 'error',
+        });
     } finally {
       setLoading(false);
-    }
+      }
   };
 
   const confirmDeleteTemplate = (id: string, folderPath: string) => {
@@ -1011,48 +1158,56 @@ export default function TemplatesPage() {
               const uniqueKey = `${template.id}-${index}`;
               return (
               <div
-                  key={uniqueKey}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, index)}
-                  onDragOver={handleDragOver}
-                  onDrop={(e) => handleDrop(e, index)}
-                  className="flex flex-col sm:flex-row items-center justify-between rounded-lg bg-slate-100 p-8 transition-all hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 cursor-move"
+                key={uniqueKey}
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, index)}
+                className="flex flex-col rounded-lg bg-slate-100 p-4 transition-all hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 cursor-move"
               >
-                <div className="flex items-center gap-8">
-                    <GripVertical className="h-6 w-6 text-slate-400" />
-                  <div className="h-32 w-32 rounded overflow-hidden">
+                {/* Top section with image and name */}
+                <div className="flex items-center gap-4 mb-4">
+                  <GripVertical className="h-6 w-6 text-slate-400 flex-shrink-0" />
+                  <div className="relative w-20 h-20 sm:w-28 sm:h-28 rounded-lg overflow-hidden flex-shrink-0">
                     {template.thumbnail_path ? (
                       <Image
                         src={formatImagePath(template.thumbnail_path)}
                         alt={template.name}
-                        width={128}
-                        height={128}
-                        className="h-full w-full object-cover"
+                        fill
+                        sizes="(max-width: 640px) 80px, 112px"
+                        className="object-cover"
+                        priority
                       />
                     ) : (
                       <div className="h-full w-full bg-red-500"></div>
                     )}
                   </div>
-                  <span className="text-xl font-bold text-slate-800 dark:text-white">{template.name}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-lg sm:text-xl font-bold text-slate-800 dark:text-white truncate block">{template.name}</span>
                 </div>
-                <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-4 mt-4 sm:mt-0">
+                </div>
+
+                {/* Bottom section with buttons */}
+                <div className="flex flex-wrap gap-2 sm:gap-4 mt-auto justify-center">
                   <button
-                    className={`rounded px-6 py-3 text-white ${template.is_public 
+                    className={`rounded px-4 py-2 text-sm text-white min-w-[80px] ${
+                      template.is_public 
                       ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-green-500 hover:bg-green-600'}`}
+                        : 'bg-green-500 hover:bg-green-600'
+                    }`}
                     onClick={() => handlePublish(template.id)}
                     disabled={template.is_public}
                   >
                     {template.is_public ? 'Published' : 'Publish'}
                   </button>
                   <button
-                    className="rounded bg-blue-500 px-6 py-3 text-white hover:bg-blue-600"
-                      onClick={() => handleEdit(template.id)}
+                    className="rounded bg-blue-500 px-4 py-2 text-sm text-white hover:bg-blue-600 min-w-[80px]"
+                    onClick={() => handleEdit(template.id)}
                   >
                     Edit
                   </button>
                   <button
-                    className="rounded bg-red-500 px-6 py-3 text-white hover:bg-red-600"
+                    className="rounded bg-red-500 px-4 py-2 text-sm text-white hover:bg-red-600 min-w-[80px]"
                     onClick={() => confirmDeleteTemplate(template.id, template.thumbnail_path)}
                   >
                     Delete
@@ -1113,25 +1268,25 @@ export default function TemplatesPage() {
             )}
           </div>
           <form className="space-y-6">
-            {/* Basic Information */}
-            <div className="grid gap-6 md:grid-cols-2">
+            {/* Template Name Field - Now editable in both create and edit modes */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Name of template:</label>
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                Template Name <span className="text-red-500">*</span>:
+              </label>
                 <input 
                   type="text" 
                   name="name"
                   value={formData.name}
                   onChange={handleInputChange}
-                  readOnly={isEditMode}
-                  className={isEditMode ? "w-full rounded-lg border-gray-300 px-4 py-2.5 text-gray-900 focus:border-blue-500 focus:ring-blue-500" :"w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 focus:border-blue-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700" }
-                  placeholder="Name"
-                  required
+                className="w-full rounded-md border border-slate-300 bg-white px-4 py-2 text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                placeholder="Enter template name"
                 />
               </div>
+
+            {/* Categories */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Categories</label>
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Categories:</label>
                 <CategorySelect />
-              </div>
             </div>
 
             {/* Description */}
@@ -1149,69 +1304,68 @@ export default function TemplatesPage() {
 
             {/* Image Uploads */}
             <div className="space-y-6">
-              <div className="grid gap-6 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Header Image:</label>
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Header Image:</label>
                   <div className="flex w-full items-center justify-center">
                     <label className="relative w-full cursor-pointer">
                       <div className="w-full pb-[56.2%] relative rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 overflow-hidden">
                         {files.previews.headerImage ? (
-                          <Image
-                            src={files.previews.headerImage}
-                            alt="Header Preview"
+                      <Image
+                        src={files.previews.headerImage}
+                        alt="Header Preview"
                             fill
                             className="object-contain absolute inset-0"
-                          />
+                      />
                         ) : (
                           <div className="absolute inset-0 flex flex-col items-center justify-center">
-                            <svg className="mb-3 h-10 w-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                            </svg>
+                      <svg className="mb-3 h-10 w-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
                             <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload header image</p>
                           </div>
                         )}
-                      </div>
-                      <input
-                        type="file"
+                    </div>
+                    <input 
+                      type="file" 
                         className="hidden"
-                        onChange={(e) => handleFileChange(e, 'headerImage')}
-                        accept="image/*"
-                      />
-                    </label>
-                  </div>
+                      onChange={(e) => handleFileChange(e, 'headerImage')}
+                      accept="image/*"
+                    />
+                  </label>
                 </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Thumbnail:</label>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Thumbnail:</label>
                   <div className="flex w-full items-center justify-center">
                     <label className="relative w-full cursor-pointer">
                       <div className="w-full pb-[75.45%] relative rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 overflow-hidden">
                         {files.previews.thumbnail ? (
-                          <Image
-                            src={files.previews.thumbnail}
-                            alt="Thumbnail Preview"
+                      <Image
+                        src={files.previews.thumbnail}
+                        alt="Thumbnail Preview"
                             fill
                             className="object-contain absolute inset-0"
-                          />
+                      />
                         ) : (
                           <div className="absolute inset-0 flex flex-col items-center justify-center">
-                            <svg className="mb-3 h-10 w-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                            </svg>
+                      <svg className="mb-3 h-10 w-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
                             <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload thumbnail</p>
                           </div>
                         )}
-                      </div>
-                      <input
-                        type="file"
+                    </div>
+                    <input 
+                      type="file" 
                         className="hidden"
-                        onChange={(e) => handleFileChange(e, 'thumbnail')}
-                        accept="image/*"
-                      />
-                    </label>
-                  </div>
+                      onChange={(e) => handleFileChange(e, 'thumbnail')}
+                      accept="image/*"
+                    />
+                  </label>
                 </div>
               </div>
+            </div>
 
               {/* Date Image */}
               <div className="space-y-2">
@@ -1238,7 +1392,7 @@ export default function TemplatesPage() {
                         </div>
                       )}
                     </div>
-                    <input
+                <input 
                       type="file"
                       className="hidden"
                       onChange={(e) => handleFileChange(e, 'dateImage')}
@@ -1252,55 +1406,55 @@ export default function TemplatesPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Seasonal Badges:</label>
-                  <button 
-                    type="button" 
-                    onClick={addSeasonalBadge}
+                <button 
+                  type="button" 
+                  onClick={addSeasonalBadge}
                     className="rounded bg-blue-500 px-3 py-1 text-sm text-white hover:bg-blue-600"
-                  >
+                >
                     Add Badge
-                  </button>
-                </div>
+                </button>
+              </div>
                 <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-                  {seasonalBadges.map((_, index) => (
+                {seasonalBadges.map((_, index) => (
                     <div key={index} className="relative">
                       <label className="relative w-full cursor-pointer">
                         {/* Container with fixed 1:1 aspect ratio for badges */}
                         <div className="w-full pb-[100%] relative rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 overflow-hidden">
                           {files.previews.seasonalBadges[index] ? (
-                            <Image
-                              src={files.previews.seasonalBadges[index]}
-                              alt={`Seasonal Badge Preview ${index + 1}`}
+                          <Image
+                            src={files.previews.seasonalBadges[index]}
+                            alt={`Seasonal Badge Preview ${index + 1}`}
                               fill
                               className="object-contain absolute inset-0"
-                            />
+                          />
                           ) : (
                             <div className="absolute inset-0 flex flex-col items-center justify-center">
-                              <svg className="mb-3 h-10 w-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                              </svg>
+                          <svg className="mb-3 h-10 w-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                          </svg>
                               <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload badge</p>
                             </div>
                           )}
                         </div>
-                        <input
-                          type="file"
-                          className="hidden"
-                          onChange={(e) => handleFileChange(e, 'seasonalBadge', index)}
-                          accept="image/*"
+                        <input 
+                          type="file" 
+                          className="hidden" 
+                          onChange={(e) => handleFileChange(e, 'seasonalBadge', index)} 
+                          accept="image/*" 
                         />
                       </label>
-                      <button 
-                        type="button" 
-                        onClick={() => removeSeasonalBadge(index)}
+                    <button 
+                      type="button" 
+                      onClick={() => removeSeasonalBadge(index)}
                         className="absolute -right-2 -top-2 rounded-full bg-red-500 p-1 text-white hover:bg-red-600"
                         aria-label="Remove badge"
-                      >
+                    >
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                         </svg>
-                      </button>
-                    </div>
-                  ))}
+                    </button>
+                  </div>
+                ))}
                 </div>
               </div>
             </div>
@@ -1380,74 +1534,112 @@ export default function TemplatesPage() {
 
                   {/* Rotation Controls */}
                   <div className="flex items-center gap-4 p-3 bg-slate-100 rounded-lg dark:bg-slate-700">
-                    <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Rotation:</span>
-                      <span className="px-2 py-1 bg-white rounded dark:bg-slate-600 text-sm">
+                    <input
+                      type="range"
+                      min="0"
+                      max="360"
+                      value={badgeRotation}
+                      onChange={(e) => {
+                        const newRotation = parseInt(e.target.value);
+                        setBadgeRotation(newRotation);
+                        const now = Date.now();
+                        if (now - lastUpdateRef.current > 500) {
+                          dashboardSupabase
+                            .from('templates')
+                            .update({
+                              badge_position: {
+                                x: badgePosition.x,
+                                y: badgePosition.y,
+                                rotation: newRotation,
+                                scale: badgeScale
+                              },
+                              updated_at: new Date().toISOString()
+                            })
+                            .eq('id', editingTemplateId);
+                          lastUpdateRef.current = now;
+                        }
+                      }}
+                      className="flex-1"
+                    />
+                    <span className="px-2 py-1 bg-white rounded dark:bg-slate-600 text-sm min-w-[60px] text-center">
                         {badgeRotation}°
                       </span>
-                    </div>
-                    <div className="flex items-center gap-2 ml-4">
                       <button
                         type="button"
-                        onClick={() => handleRotationChange((badgeRotation - 15 + 360) % 360)}
-                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"
-                        title="Rotate Counterclockwise"
-                      >
-                        -15°
+                      onClick={() => {
+                        setBadgeRotation(0);
+                        dashboardSupabase
+                          .from('templates')
+                          .update({
+                            badge_position: {
+                              x: badgePosition.x,
+                              y: badgePosition.y,
+                              rotation: 0,
+                              scale: badgeScale
+                            },
+                            updated_at: new Date().toISOString()
+                          })
+                          .eq('id', editingTemplateId);
+                      }}
+                      className="text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      Reset Rotation
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRotationChange((badgeRotation + 15) % 360)}
-                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"
-                        title="Rotate Clockwise"
-                      >
-                        +15°
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRotationChange(0)}
-                        className="ml-2 text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
-                      >
-                        Reset Rotation
-                      </button>
-                    </div>
                   </div>
 
                   {/* Scale Controls */}
                   <div className="flex items-center gap-4 p-3 bg-slate-100 rounded-lg dark:bg-slate-700">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Scale:</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Scale:</span>
-                      <span className="px-2 py-1 bg-white rounded dark:bg-slate-600 text-sm">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleScaleButtonClick(false)}
+                        disabled={badgeScale <= 0.1}
+                      >
+                        <Minus className="h-4 w-4" />
+                      </Button>
+                      <span className="px-2 py-1 bg-white rounded dark:bg-slate-600 text-sm min-w-[60px] text-center">
                         {badgeScale.toFixed(1)}x
                       </span>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleScaleButtonClick(true)}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <div className="flex items-center gap-2 ml-4">
+                    <Slider
+                      value={[badgeScale]}
+                      onValueChange={handleScaleChange}
+                      min={0.1}
+                      max={7}
+                      step={0.1}
+                      className="flex-1 mx-4"
+                    />
                       <button
                         type="button"
-                        onClick={() => handleScaleChange(-0.1)}
-                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"
-                        title="Scale Down"
-                        disabled={badgeScale <= MIN_SCALE}
+                      onClick={() => {
+                        setBadgeScale(1);
+                        dashboardSupabase
+                          .from('templates')
+                          .update({
+                            badge_position: {
+                              x: badgePosition.x,
+                              y: badgePosition.y,
+                              rotation: badgeRotation,
+                              scale: 1
+                            },
+                            updated_at: new Date().toISOString()
+                          })
+                          .eq('id', editingTemplateId);
+                      }}
+                      className="text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
                       >
-                        -0.1x
+                      Reset Scale
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleScaleChange(0.1)}
-                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"
-                        title="Scale Up"
-                        disabled={badgeScale >= MAX_SCALE}
-                      >
-                        +0.1x
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setBadgeScale(1)}
-                        className="ml-2 text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
-                      >
-                        Reset Scale
-                      </button>
-                    </div>
                   </div>
                 </div>
               )}
