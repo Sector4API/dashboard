@@ -136,7 +136,7 @@ class ProductApiClient {
       const lowercaseQuery = query.toLowerCase();
 
       // Log the search URL for name-based search
-      console.log(`Search URL: ${this.supabase.from('products').select('product_name,tags,image_path,id,main_category').ilike('product_name', `%${query}%`).url}`);
+      // console.log(`Search URL: ${this.supabase.from('products').select('product_name,tags,image_path,id,main_category').ilike('product_name', `%${query}%`).url}`);
 
       // Then, search by product name
       const { data: nameResults, error: nameError } = await this.supabase
@@ -150,7 +150,7 @@ class ProductApiClient {
       }
 
       // Log the search URL for tag-based search
-      console.log(`Tag search URL: ${this.supabase.from('products').select('product_name,tags,image_path,id,main_category').filter('tags', 'cs', `{${query}}`).url}`);
+      // console.log(`Tag search URL: ${this.supabase.from('products').select('product_name,tags,image_path,id,main_category').filter('tags', 'cs', `{${query}}`).url}`);
 
       // Search by tags
       const { data: tagResults, error: tagError } = await this.supabase
@@ -411,7 +411,7 @@ class ProductApiClient {
           main_category: product.main_category || null,
           original_created_at: product.created_at || new Date().toISOString(),
           deleted_at: new Date().toISOString(),
-          scheduled_deletion_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days from now
+          scheduled_deletion_at: null // No automatic deletion
         }]);
 
       if (trashError) {

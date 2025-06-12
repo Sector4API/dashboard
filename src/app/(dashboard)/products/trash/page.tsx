@@ -15,7 +15,6 @@ interface TrashItem {
   imageUrl: string | null;
   main_category?: string;
   deleted_at: string;
-  scheduled_deletion_at: string;
 }
 
 const PAGE_SIZE = 20;
@@ -137,14 +136,6 @@ export default function TrashPage() {
     });
   };
 
-  const getDaysUntilDeletion = (scheduledDate: string) => {
-    const now = new Date();
-    const scheduled = new Date(scheduledDate);
-    const diffTime = scheduled.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
-  };
-
   useEffect(() => {
     fetchTrashItems();
   }, []);
@@ -204,11 +195,8 @@ export default function TrashPage() {
                       Tags: {item.tags.join(', ')}
                     </p>
                   )}
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                     Deleted: {formatDate(item.deleted_at)}
-                  </p>
-                  <p className="text-sm text-red-500 mb-4">
-                    Will be permanently deleted in {getDaysUntilDeletion(item.scheduled_deletion_at)} days
                   </p>
                   <div className="flex gap-2">
                     <Button
@@ -222,7 +210,7 @@ export default function TrashPage() {
                       variant="destructive"
                       className="flex-1"
                     >
-                      Delete
+                      Delete Permanently
                     </Button>
                   </div>
                 </div>

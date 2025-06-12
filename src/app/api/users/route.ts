@@ -103,17 +103,45 @@ export async function DELETE(request: Request) {
       );
     }
 
-    const { error } = await dashboardAdminSupabase
-      .from('user_details')
-      .delete()
-      .eq('id', id);
+    // First, delete the user from auth.users using admin API
+    const { error: authError } = await dashboardAdminSupabase.auth.admin.deleteUser(
+      id
+    );
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (authError) {
+      console.error('Error deleting user from auth:', authError);
+      return NextResponse.json({ error: authError.message }, { status: 500 });
+    }
+
+    // The trigger will automatically delete the user from user_details
+    // But let's verify the deletion
+    const { data: remainingUser, error: checkError } = await dashboardAdminSupabase
+      .from('user_details')
+      .select('id')
+      .eq('id', id)
+      .single();
+
+    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "not found" which is what we want
+      console.error('Error checking user deletion:', checkError);
+      return NextResponse.json({ error: checkError.message }, { status: 500 });
+    }
+
+    if (remainingUser) {
+      // If the trigger didn't work, delete manually
+      const { error: deleteError } = await dashboardAdminSupabase
+        .from('user_details')
+        .delete()
+        .eq('id', id);
+
+      if (deleteError) {
+        console.error('Error deleting user from user_details:', deleteError);
+        return NextResponse.json({ error: deleteError.message }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    console.error('Error in DELETE /api/users:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

@@ -1,22 +1,22 @@
 export const metrics = [
   {
-    title: "Created Tickets",
-    value: "24,208",
-    change: -0.05,
+    title: "Total Templates",
+    value: "0",
+    change: 0,
   },
   {
-    title: "Unsolved Tickets",
-    value: "4,564",
-    change: 0.02,
+    title: "Published Templates",
+    value: "0",
+    change: 0,
   },
   {
-    title: "Resolved Tickets",
-    value: "18,208",
-    change: 0.08,
+    title: "Unpublished Templates",
+    value: "0",
+    change: 0,
   },
   {
-    title: "Average First Time Reply",
-    value: "12:01 min",
-    change: 0.08,
+    title: "Templates Used",
+    value: "0",
+    change: 0,
   },
 ];

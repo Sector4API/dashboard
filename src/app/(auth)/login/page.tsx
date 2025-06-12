@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/ui/spinner';
 import { dashboardSupabase, createSupabaseClient } from '@/lib/supabase';
+import { useToast } from '@/components/ui/toast-provider';
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -11,6 +12,7 @@ const LoginPage = () => {
   const [error, setError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const router = useRouter();
+  const { addToast } = useToast();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,6 +28,12 @@ const LoginPage = () => {
 
       if (dashboardError) {
         setError(dashboardError.message);
+        addToast({
+          title: 'Authentication Error',
+          description: dashboardError.message,
+          variant: 'error',
+          duration: 5000
+        });
         return;
       }
 
@@ -61,11 +69,26 @@ const LoginPage = () => {
 
         // Set session cookie with HttpOnly flag for better security
         document.cookie = 'isAuthenticated=true; path=/; max-age=86400; secure; samesite=strict';
+        
+        addToast({
+          title: 'Success',
+          description: 'Successfully logged in!',
+          variant: 'success',
+          duration: 3000
+        });
+        
         router.push('/');
         router.refresh();
       }
     } catch (err) {
-      setError('An unexpected error occurred');
+      const errorMessage = 'An unexpected error occurred';
+      setError(errorMessage);
+      addToast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'error',
+        duration: 5000
+      });
       console.error('Login error:', err);
     } finally {
       setLoginLoading(false);

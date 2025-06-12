@@ -12,12 +12,17 @@ import { Check, GripVertical, Minus, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { debounce } from 'lodash';
 
 interface BadgePosition {
   x: number;
   y: number;
   rotation: number;
   scale: number;
+}
+
+interface PreviewUrls {
+  [key: string]: string;
 }
 
 export default function TemplatesPage() {
@@ -93,6 +98,9 @@ export default function TemplatesPage() {
 
   const [openCategory, setOpenCategory] = React.useState(false);
 
+  const [previewUrls, setPreviewUrls] = React.useState<PreviewUrls>({});
+  const previewUrlsRef = React.useRef<PreviewUrls>({});
+
   const handleCategoryChange = React.useCallback((value: string) => {
     setFormData(prev => {
       const newCategories = prev.category.includes(value)
@@ -163,34 +171,76 @@ export default function TemplatesPage() {
   }, [page]);
 
   // Update file state to include date image
-  const [files, setFiles] = React.useState({
-    headerImage: null as File | null,
-    thumbnail: null as File | null,
-    dateImage: null as File | null,
-    seasonalBadges: [] as (File | null)[],
+  const [files, setFiles] = React.useState<{
+    headerImage: File | null;
+    thumbnail: File | null;
+    dateImage: File | null;
+    seasonalBadges: (File | null)[];
+    previews: {
+      headerImage: string;
+      thumbnail: string;
+      dateImage: string;
+      seasonalBadges: string[];
+    };
+  }>({
+    headerImage: null,
+    thumbnail: null,
+    dateImage: null,
+    seasonalBadges: [],
     previews: {
       headerImage: '',
       thumbnail: '',
       dateImage: '',
-      seasonalBadges: [] as string[]
+      seasonalBadges: []
     }
   });
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+  const validateImageDimensions = async (file: File, type: 'headerImage' | 'thumbnail' | 'dateImage' | 'seasonalBadge'): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const img = document.createElement('img');
+      const objectUrl = URL.createObjectURL(file);
+
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const { width, height } = img;
+
+        switch (type) {
+          case 'headerImage':
+            resolve(width <= 3661 && height <= 2059);
+            break;
+          case 'thumbnail':
+            resolve(width <= 1100 && height <= 830);
+            break;
+          case 'dateImage':
+            resolve(width <= 600 && height <= 190);
+            break;
+          case 'seasonalBadge':
+            resolve(width <= 2048 && height <= 2048);
+            break;
+          default:
+            resolve(false);
+        }
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(false);
+      };
+
+      img.src = objectUrl;
+    });
   };
 
-  const handleFileChange = (
+  const handleFileChange = async (
     e: React.ChangeEvent<HTMLInputElement>,
     type: 'headerImage' | 'thumbnail' | 'dateImage' | 'seasonalBadge',
     index?: number
   ) => {
     const file = e.target.files?.[0];
-    if (file) {
+    if (!file) return;
+
+    try {
+      // Validate file size
       if (file.size > maxFileSize) {
         addToast({
           title: 'Error',
@@ -201,80 +251,122 @@ export default function TemplatesPage() {
         return;
       }
 
-      // Validate image dimensions
-      const fileURL = URL.createObjectURL(file);
-      const img = document.createElement('img');
-      img.src = fileURL;
-      img.onload = () => {
-        let isValid = true;
-        let errorMessage = '';
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        addToast({
+          title: 'Error',
+          description: 'Only image files are allowed',
+          variant: 'error',
+        });
+        e.target.value = '';
+        return;
+      }
 
-        switch (type) {
-          case 'headerImage':
-            if (img.width !== 3661 || img.height !== 2059) {
-              isValid = false;
-              errorMessage = 'Header image must be 3661x2059 pixels';
-            }
-            break;
-          case 'thumbnail':
-            if (img.width !== 1100 || img.height !== 830) {
-              isValid = false;
-              errorMessage = 'Thumbnail must be 1100x830 pixels';
-            }
-            break;
-          case 'dateImage':
-            if (img.width !== 600 || img.height !== 190) {
-              isValid = false;
-              errorMessage = 'Date image must be 600x190 pixels';
-            }
-            break;
-          case 'seasonalBadge':
-            if (img.width !== 1024 || img.height !== 1024) {
-              isValid = false;
-              errorMessage = 'Seasonal badge must be 1024x1024 pixels';
-            }
-            break;
-        }
+      // Validate dimensions
+      const isValidDimensions = await validateImageDimensions(file, type);
+      if (!isValidDimensions) {
+        const dimensionsMessage = {
+          headerImage: 'Header image must not exceed 3661x2059 pixels',
+          thumbnail: 'Thumbnail must not exceed 1100x830 pixels',
+          dateImage: 'Date image must not exceed 600x190 pixels',
+          seasonalBadge: 'Seasonal badge must not exceed 2048x2048 pixels'
+        }[type];
 
-        if (!isValid) {
-          addToast({
-            title: 'Error',
-            description: errorMessage,
-            variant: 'error',
-          });
-          e.target.value = '';
-          URL.revokeObjectURL(fileURL);
-          return;
-        }
+        addToast({
+          title: 'Error',
+          description: dimensionsMessage,
+          variant: 'error',
+        });
+        e.target.value = '';
+        return;
+      }
 
+      // Create preview URL
+      const previewUrl = URL.createObjectURL(file);
+      const urlKey = type === 'seasonalBadge' ? `${type}_${index}` : type;
+      
+      // Store the URL in both state and ref
+      setPreviewUrls(prev => {
+        const newUrls = { ...prev, [urlKey]: previewUrl };
+        previewUrlsRef.current = newUrls;
+        return newUrls;
+      });
+
+      // Update files and previews state based on type
       if (type === 'seasonalBadge' && typeof index === 'number') {
         setFiles(prev => {
           const newBadges = [...prev.seasonalBadges];
           const newPreviews = [...prev.previews.seasonalBadges];
           
-          while (newBadges.length <= index) {
-            newBadges.push(null);
-            newPreviews.push('');
-          }
-          
           newBadges[index] = file;
-          newPreviews[index] = fileURL;
+          newPreviews[index] = previewUrl;
           
           return {
             ...prev,
             seasonalBadges: newBadges,
-            previews: { ...prev.previews, seasonalBadges: newPreviews }
+            previews: {
+              ...prev.previews,
+              seasonalBadges: newPreviews
+            }
           };
         });
-        } else if (type === 'headerImage' || type === 'thumbnail' || type === 'dateImage') {
+      } else {
         setFiles(prev => ({
           ...prev,
           [type]: file,
-          previews: { ...prev.previews, [type]: fileURL }
+          previews: {
+            ...prev.previews,
+            [type]: previewUrl
+          }
         }));
       }
-      };
+
+      e.target.value = '';
+    } catch (error) {
+      console.error('Error handling file upload:', error);
+      addToast({
+        title: 'Error',
+        description: 'Failed to process the image. Please try again.',
+        variant: 'error',
+      });
+      e.target.value = '';
     }
+  };
+
+  // Update the cleanup effect
+  React.useEffect(() => {
+    return () => {
+      // Cleanup all preview URLs when component unmounts
+      Object.values(previewUrlsRef.current).forEach(url => {
+        if (url && url.startsWith('blob:')) {
+          URL.revokeObjectURL(url);
+        }
+      });
+    };
+  }, []);
+
+  // Add this effect to handle preview URL updates
+  React.useEffect(() => {
+    const currentUrls = { ...previewUrlsRef.current };
+    
+    // Cleanup any old URLs that are no longer in use
+    Object.entries(currentUrls).forEach(([key, url]) => {
+      if (!Object.values(files.previews).includes(url) && 
+          !files.previews.seasonalBadges.includes(url)) {
+        URL.revokeObjectURL(url);
+        delete currentUrls[key];
+      }
+    });
+    
+    previewUrlsRef.current = currentUrls;
+  }, [files.previews]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
   const handleSubmit = async () => {
@@ -752,37 +844,70 @@ export default function TemplatesPage() {
 
   // Add scale state
   const [badgeScale, setBadgeScale] = React.useState(1);
+  const [isUpdating, setIsUpdating] = React.useState(false);
   const SCALE_STEP = 0.1;
 
-  const handleScaleChange = (value: number[]) => {
+  // Memoize the database update function
+  const updateBadgePositionInDB = React.useCallback(
+    async (position: BadgePosition) => {
+      if (!editingTemplateId || isUpdating) return;
+      
+      try {
+        setIsUpdating(true);
+        await dashboardSupabase
+          .from('templates')
+          .update({
+            badge_position: position,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', editingTemplateId);
+      } catch (error) {
+        console.error('Error updating badge position:', error);
+      } finally {
+        setIsUpdating(false);
+      }
+    },
+    [editingTemplateId, isUpdating]
+  );
+
+  // Debounced database update
+  const debouncedUpdateDB = React.useMemo(
+    () => debounce(updateBadgePositionInDB, 500),
+    [updateBadgePositionInDB]
+  );
+
+  // Cleanup on unmount
+  React.useEffect(() => {
+    return () => {
+      debouncedUpdateDB.cancel();
+    };
+  }, [debouncedUpdateDB]);
+
+  const handleScaleChange = React.useCallback((value: number[]) => {
     const newScale = parseFloat(value[0].toFixed(1));
+    if (newScale === badgeScale) return;
+    
     setBadgeScale(newScale);
     
+    // Create position object for database update
     const updatedBadgePosition: BadgePosition = {
       x: Math.round(badgePosition.x),
       y: Math.round(badgePosition.y),
       rotation: badgeRotation,
       scale: newScale
     };
-      
-    // Throttle database updates
-    const now = Date.now();
-    if (now - lastUpdateRef.current > 500) {
-      dashboardSupabase
-        .from('templates')
-        .update({
-          badge_position: updatedBadgePosition,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', editingTemplateId);
-      lastUpdateRef.current = now;
-    }
-  };
 
-  const handleScaleButtonClick = (increment: boolean) => {
-    const newScale = parseFloat((increment ? badgeScale + SCALE_STEP : badgeScale - SCALE_STEP).toFixed(1));
-    if (newScale > 0) {
-      setBadgeScale(newScale);
+    // Debounced database update
+    debouncedUpdateDB(updatedBadgePosition);
+  }, [badgeScale, badgePosition, badgeRotation, debouncedUpdateDB]);
+
+  const handleScaleButtonClick = React.useCallback((e: React.MouseEvent, increment: boolean) => {
+    e.preventDefault(); // Prevent any default browser behavior
+    e.stopPropagation(); // Stop event propagation
+    
+    setBadgeScale(prev => {
+      const newScale = parseFloat((increment ? prev + SCALE_STEP : prev - SCALE_STEP).toFixed(1));
+      if (newScale <= 0.1 || newScale > 20 || newScale === prev) return prev;
       
       const updatedBadgePosition: BadgePosition = {
         x: Math.round(badgePosition.x),
@@ -790,16 +915,28 @@ export default function TemplatesPage() {
         rotation: badgeRotation,
         scale: newScale
       };
-      
-      dashboardSupabase
-        .from('templates')
-        .update({
-          badge_position: updatedBadgePosition,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', editingTemplateId);
-        }
-      };
+
+      // Debounced database update
+      debouncedUpdateDB(updatedBadgePosition);
+      return newScale;
+    });
+  }, [badgePosition, badgeRotation, debouncedUpdateDB]);
+
+  const handleResetScale = React.useCallback(() => {
+    if (badgeScale === 1) return;
+    
+    setBadgeScale(1);
+    
+    const updatedBadgePosition: BadgePosition = {
+      x: badgePosition.x,
+      y: badgePosition.y,
+      rotation: badgeRotation,
+      scale: 1
+    };
+
+    // Immediate database update for reset
+    updateBadgePositionInDB(updatedBadgePosition);
+  }, [badgeScale, badgePosition, badgeRotation, updateBadgePositionInDB]);
 
   const handleConfirm = async () => {
     setIsDialogOpen(false);
@@ -918,8 +1055,18 @@ export default function TemplatesPage() {
   };
 
   const removeSeasonalBadge = (index: number) => {
-    setSeasonalBadges(seasonalBadges.filter((_, i) => i !== index));
-    
+    // Revoke the blob URL for the removed badge
+    const urlKey = `seasonalBadge_${index}`;
+    if (previewUrlsRef.current[urlKey]) {
+      URL.revokeObjectURL(previewUrlsRef.current[urlKey]);
+      setPreviewUrls(prev => {
+        const newUrls = { ...prev };
+        delete newUrls[urlKey];
+        previewUrlsRef.current = newUrls;
+        return newUrls;
+      });
+    }
+
     setFiles(prev => {
       const newBadges = [...prev.seasonalBadges];
       const newPreviews = [...prev.previews.seasonalBadges];
@@ -936,6 +1083,8 @@ export default function TemplatesPage() {
         }
       };
     });
+    
+    setSeasonalBadges(prev => prev.filter((_, i) => i !== index));
   };
 
   const formatImagePath = (path: string | null): string => {
@@ -1078,6 +1227,48 @@ export default function TemplatesPage() {
   if (!supabaseUrl || !storageBucket) {
     console.error('Missing required environment variables. Please check your .env file.');
   }
+
+  const resetForm = () => {
+    // Cleanup all preview URLs
+    Object.values(previewUrlsRef.current).forEach(url => {
+      if (url && url.startsWith('blob:')) {
+        URL.revokeObjectURL(url);
+      }
+    });
+    setPreviewUrls({});
+    previewUrlsRef.current = {};
+
+    setFormData({
+      name: '',
+      description: '',
+      category: [],
+      tags: '',
+      terms_section_background_color: '#ffffff',
+      product_section_background_color: '#ffffff',
+      product_card_background_color: '#ffffff',
+      global_text_color: '#000000'
+    });
+
+    setFiles({
+      headerImage: null,
+      thumbnail: null,
+      dateImage: null,
+      seasonalBadges: [],
+      previews: {
+        headerImage: '',
+        thumbnail: '',
+        dateImage: '',
+        seasonalBadges: []
+      }
+    });
+
+    setSeasonalBadges([1, 2, 3]);
+    setBadgePosition({ x: 50, y: 50 });
+    setBadgeRotation(0);
+    setBadgeScale(1);
+    setIsEditMode(false);
+    setEditingTemplateId(null);
+  };
 
   return (
     <>
@@ -1307,28 +1498,44 @@ export default function TemplatesPage() {
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Header Image:</label>
-                  <div className="flex w-full items-center justify-center">
-                    <label className="relative w-full cursor-pointer">
-                      <div className="w-full pb-[56.2%] relative rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 overflow-hidden">
-                        {files.previews.headerImage ? (
-                      <Image
-                        src={files.previews.headerImage}
-                        alt="Header Preview"
-                            fill
-                            className="object-contain absolute inset-0"
-                      />
-                        ) : (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <svg className="mb-3 h-10 w-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                      </svg>
-                            <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload header image</p>
-                          </div>
-                        )}
+                <div className="flex w-full items-center justify-center">
+                  <label className="relative w-full cursor-pointer">
+                    <div className="w-full pb-[56.25%] relative rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 overflow-hidden">
+                      {files.previews.headerImage ? (
+                        <Image
+                          src={files.previews.headerImage}
+                          alt="Header Preview"
+                          fill
+                          className="object-contain"
+                          onError={() => {
+                            // Handle image load error
+                            setFiles(prev => ({
+                              ...prev,
+                              headerImage: null,
+                              previews: {
+                                ...prev.previews,
+                                headerImage: ''
+                              }
+                            }));
+                            addToast({
+                              title: 'Error',
+                              description: 'Failed to load header image preview',
+                              variant: 'error',
+                            });
+                          }}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                          <svg className="mb-3 h-10 w-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                          </svg>
+                          <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload header image</p>
+                        </div>
+                      )}
                     </div>
-                    <input 
-                      type="file" 
-                        className="hidden"
+                    <input
+                      type="file"
+                      className="hidden"
                       onChange={(e) => handleFileChange(e, 'headerImage')}
                       accept="image/*"
                     />
@@ -1337,28 +1544,43 @@ export default function TemplatesPage() {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Thumbnail:</label>
-                  <div className="flex w-full items-center justify-center">
-                    <label className="relative w-full cursor-pointer">
-                      <div className="w-full pb-[75.45%] relative rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 overflow-hidden">
-                        {files.previews.thumbnail ? (
-                      <Image
-                        src={files.previews.thumbnail}
-                        alt="Thumbnail Preview"
-                            fill
-                            className="object-contain absolute inset-0"
-                      />
-                        ) : (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <svg className="mb-3 h-10 w-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                      </svg>
-                            <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload thumbnail</p>
-                          </div>
-                        )}
+                <div className="flex w-full items-center justify-center">
+                  <label className="relative w-full cursor-pointer">
+                    <div className="w-full pb-[75.45%] relative rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 overflow-hidden">
+                      {files.previews.thumbnail ? (
+                        <Image
+                          src={files.previews.thumbnail}
+                          alt="Thumbnail Preview"
+                          fill
+                          className="object-contain"
+                          onError={() => {
+                            setFiles(prev => ({
+                              ...prev,
+                              thumbnail: null,
+                              previews: {
+                                ...prev.previews,
+                                thumbnail: ''
+                              }
+                            }));
+                            addToast({
+                              title: 'Error',
+                              description: 'Failed to load thumbnail preview',
+                              variant: 'error',
+                            });
+                          }}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                          <svg className="mb-3 h-10 w-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                          </svg>
+                          <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload thumbnail</p>
+                        </div>
+                      )}
                     </div>
-                    <input 
-                      type="file" 
-                        className="hidden"
+                    <input
+                      type="file"
+                      className="hidden"
                       onChange={(e) => handleFileChange(e, 'thumbnail')}
                       accept="image/*"
                     />
@@ -1371,17 +1593,32 @@ export default function TemplatesPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
                   Date Image <span className="text-red-500">*</span>:
+                  <span className="text-xs text-slate-500 ml-2">(Max: 600x190px)</span>
                 </label>
                 <div className="flex w-full items-center justify-center">
-                  <label className="relative w-1/2 cursor-pointer">
-                    {/* Container with fixed aspect ratio for date image (600:190 ≈ 31.67%) */}
+                  <label className="relative w-full cursor-pointer">
                     <div className="w-full pb-[31.67%] relative rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 overflow-hidden">
                       {files.previews.dateImage ? (
                         <Image
                           src={files.previews.dateImage}
                           alt="Date Image Preview"
                           fill
-                          className="object-contain absolute inset-0"
+                          className="object-contain"
+                          onError={() => {
+                            setFiles(prev => ({
+                              ...prev,
+                              dateImage: null,
+                              previews: {
+                                ...prev.previews,
+                                dateImage: ''
+                              }
+                            }));
+                            addToast({
+                              title: 'Error',
+                              description: 'Failed to load date image preview',
+                              variant: 'error',
+                            });
+                          }}
                         />
                       ) : (
                         <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -1392,7 +1629,7 @@ export default function TemplatesPage() {
                         </div>
                       )}
                     </div>
-                <input 
+                    <input
                       type="file"
                       className="hidden"
                       onChange={(e) => handleFileChange(e, 'dateImage')}
@@ -1403,58 +1640,84 @@ export default function TemplatesPage() {
               </div>
 
               {/* Seasonal Badges */}
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Seasonal Badges:</label>
-                <button 
-                  type="button" 
-                  onClick={addSeasonalBadge}
-                    className="rounded bg-blue-500 px-3 py-1 text-sm text-white hover:bg-blue-600"
-                >
-                    Add Badge
-                </button>
-              </div>
-                <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-                {seasonalBadges.map((_, index) => (
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                    Seasonal Badges <span className="text-red-500">*</span>:
+                    <span className="text-xs text-slate-500 ml-2">(Max: 2048x2048px)</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={addSeasonalBadge}
+                      disabled={seasonalBadges.length >= 10}
+                      className={cn(
+                        "rounded-full p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900",
+                        seasonalBadges.length >= 10 && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      <Plus className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                  {seasonalBadges.map((_, index) => (
                     <div key={index} className="relative">
-                      <label className="relative w-full cursor-pointer">
-                        {/* Container with fixed 1:1 aspect ratio for badges */}
+                      <label className="relative block cursor-pointer">
                         <div className="w-full pb-[100%] relative rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 overflow-hidden">
                           {files.previews.seasonalBadges[index] ? (
-                          <Image
-                            src={files.previews.seasonalBadges[index]}
-                            alt={`Seasonal Badge Preview ${index + 1}`}
+                            <Image
+                              src={files.previews.seasonalBadges[index]}
+                              alt={`Seasonal Badge ${index + 1}`}
                               fill
-                              className="object-contain absolute inset-0"
-                          />
+                              className="object-contain"
+                              onError={() => {
+                                setFiles(prev => {
+                                  const newBadges = [...prev.seasonalBadges];
+                                  const newPreviews = [...prev.previews.seasonalBadges];
+                                  newBadges[index] = null;
+                                  newPreviews[index] = '';
+                                  return {
+                                    ...prev,
+                                    seasonalBadges: newBadges,
+                                    previews: {
+                                      ...prev.previews,
+                                      seasonalBadges: newPreviews
+                                    }
+                                  };
+                                });
+                                addToast({
+                                  title: 'Error',
+                                  description: `Failed to load seasonal badge ${index + 1} preview`,
+                                  variant: 'error',
+                                });
+                              }}
+                            />
                           ) : (
                             <div className="absolute inset-0 flex flex-col items-center justify-center">
-                          <svg className="mb-3 h-10 w-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                          </svg>
-                              <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">Click to upload badge</p>
+                              <svg className="mb-2 h-8 w-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                              </svg>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">Badge {index + 1}</p>
                             </div>
                           )}
                         </div>
-                        <input 
-                          type="file" 
-                          className="hidden" 
-                          onChange={(e) => handleFileChange(e, 'seasonalBadge', index)} 
-                          accept="image/*" 
+                        <input
+                          type="file"
+                          className="hidden"
+                          onChange={(e) => handleFileChange(e, 'seasonalBadge', index)}
+                          accept="image/*"
                         />
                       </label>
-                    <button 
-                      type="button" 
-                      onClick={() => removeSeasonalBadge(index)}
-                        className="absolute -right-2 -top-2 rounded-full bg-red-500 p-1 text-white hover:bg-red-600"
-                        aria-label="Remove badge"
-                    >
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                  </div>
-                ))}
+                      <button
+                        type="button"
+                        onClick={() => removeSeasonalBadge(index)}
+                        className="absolute -top-2 -right-2 rounded-full bg-red-500 p-1 text-white hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -1595,8 +1858,9 @@ export default function TemplatesPage() {
                       <Button
                         variant="outline"
                         size="icon"
-                        onClick={() => handleScaleButtonClick(false)}
-                        disabled={badgeScale <= 0.1}
+                        onClick={(e) => handleScaleButtonClick(e, false)}
+                        disabled={badgeScale <= 0.1 || isUpdating}
+                        type="button"
                       >
                         <Minus className="h-4 w-4" />
                       </Button>
@@ -1606,7 +1870,9 @@ export default function TemplatesPage() {
                       <Button
                         variant="outline"
                         size="icon"
-                        onClick={() => handleScaleButtonClick(true)}
+                        onClick={(e) => handleScaleButtonClick(e, true)}
+                        disabled={badgeScale >= 20 || isUpdating}
+                        type="button"
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -1615,31 +1881,26 @@ export default function TemplatesPage() {
                       value={[badgeScale]}
                       onValueChange={handleScaleChange}
                       min={0.1}
-                      max={7}
+                      max={20}
                       step={0.1}
                       className="flex-1 mx-4"
+                      disabled={isUpdating}
                     />
-                      <button
-                        type="button"
-                      onClick={() => {
-                        setBadgeScale(1);
-                        dashboardSupabase
-                          .from('templates')
-                          .update({
-                            badge_position: {
-                              x: badgePosition.x,
-                              y: badgePosition.y,
-                              rotation: badgeRotation,
-                              scale: 1
-                            },
-                            updated_at: new Date().toISOString()
-                          })
-                          .eq('id', editingTemplateId);
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleResetScale();
                       }}
-                      className="text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
-                      >
+                      disabled={badgeScale === 1 || isUpdating}
+                      className={cn(
+                        "text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300",
+                        (badgeScale === 1 || isUpdating) && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
                       Reset Scale
-                      </button>
+                    </button>
                   </div>
                 </div>
               )}
@@ -1704,13 +1965,20 @@ export default function TemplatesPage() {
             </div>
 
             {/* Submit Button */}
-            <div className="pt-4">
+            <div className="pt-4 flex gap-4">
               <button
                 type="button"
-                className="w-full rounded-lg bg-blue-500 px-4 py-2.5 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                className="flex-1 rounded-lg bg-blue-500 px-4 py-2.5 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 onClick={() => setIsDialogOpen(true)}
               >
                 {isEditMode ? 'Update Template' : 'Create Template'}
+              </button>
+              <button
+                type="button"
+                className="flex-1 rounded-lg bg-gray-500 px-4 py-2.5 text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                onClick={resetForm}
+              >
+                Cancel
               </button>
             </div>
           </form>

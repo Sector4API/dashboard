@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Slider } from "@/components/ui/slider"
 import { Plus, Minus } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 interface Badge {
   id: string
@@ -17,29 +18,17 @@ export default function EditTemplate() {
   const [badges, setBadges] = useState<Badge[]>([])
   const [selectedBadge, setSelectedBadge] = useState<Badge | null>(null)
   const [badgeScale, setBadgeScale] = useState(1)
+  const [isUpdating, setIsUpdating] = useState(false)
   const SCALE_STEP = 0.1 // For fine-tuning buttons
 
-  const handleScaleChange = (value: number[]) => {
-    setBadgeScale(value[0])
-    // Update badge scale in your existing logic
-    const updatedBadges = badges.map(badge => {
-      if (badge.id === selectedBadge?.id) {
-        return {
-          ...badge,
-          scale: value[0]
-        }
-      }
-      return badge
-    })
-    setBadges(updatedBadges)
-  }
-
-  const handleScaleButtonClick = (increment: boolean) => {
-    const newScale = increment ? badgeScale + SCALE_STEP : badgeScale - SCALE_STEP
-    if (newScale > 0) { // Prevent negative scaling
-      setBadgeScale(newScale)
-      const updatedBadges = badges.map(badge => {
-        if (badge.id === selectedBadge?.id) {
+  const handleScaleChange = useCallback((value: number[]) => {
+    const newScale = value[0];
+    if (newScale === badgeScale || !selectedBadge) return;
+    
+    setBadgeScale(newScale);
+    setBadges(prevBadges => 
+      prevBadges.map(badge => {
+        if (badge.id === selectedBadge.id) {
           return {
             ...badge,
             scale: newScale
@@ -47,16 +36,44 @@ export default function EditTemplate() {
         }
         return badge
       })
-      setBadges(updatedBadges)
-    }
-  }
+    );
+  }, [badgeScale, selectedBadge]);
+
+  const handleScaleButtonClick = useCallback((e: React.MouseEvent, increment: boolean) => {
+    e.preventDefault(); // Prevent any default browser behavior
+    e.stopPropagation(); // Stop event propagation
+    
+    if (!selectedBadge) return;
+    
+    setBadgeScale(prev => {
+      const newScale = increment ? prev + SCALE_STEP : prev - SCALE_STEP;
+      if (newScale <= 0.1 || newScale > 20 || newScale === prev) return prev;
+      
+      setBadges(prevBadges => 
+        prevBadges.map(badge => {
+          if (badge.id === selectedBadge.id) {
+            return {
+              ...badge,
+              scale: newScale
+            }
+          }
+          return badge
+        })
+      );
+      
+      return newScale;
+    });
+  }, [selectedBadge, SCALE_STEP]);
 
   // Update badgeScale when selecting a different badge
   useEffect(() => {
     if (selectedBadge) {
-      setBadgeScale(selectedBadge.scale || 1)
+      const newScale = selectedBadge.scale || 1;
+      if (newScale !== badgeScale) {
+        setBadgeScale(newScale);
+      }
     }
-  }, [selectedBadge])
+  }, [selectedBadge]);
 
   return (
     <div>
@@ -68,8 +85,9 @@ export default function EditTemplate() {
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => handleScaleButtonClick(false)}
-                disabled={badgeScale <= 0.1}
+                onClick={(e) => handleScaleButtonClick(e, false)}
+                disabled={badgeScale <= 0.1 || isUpdating}
+                type="button"
               >
                 <Minus className="h-4 w-4" />
               </Button>
@@ -79,7 +97,9 @@ export default function EditTemplate() {
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => handleScaleButtonClick(true)}
+                onClick={(e) => handleScaleButtonClick(e, true)}
+                disabled={badgeScale >= 20 || isUpdating}
+                type="button"
               >
                 <Plus className="h-4 w-4" />
               </Button>
@@ -90,9 +110,10 @@ export default function EditTemplate() {
               value={[badgeScale]}
               onValueChange={handleScaleChange}
               min={0.1}
-              max={10}
+              max={20}
               step={0.1}
               className="w-[200px]"
+              disabled={isUpdating}
             />
           </div>
         </div>
