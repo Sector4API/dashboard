@@ -1076,37 +1076,88 @@ export default function TemplatesPage() {
     }
   };
 
-  const removeSeasonalBadge = (index: number) => {
-    // Revoke the blob URL for the removed badge
-    const urlKey = `seasonalBadge_${index}`;
-    if (previewUrlsRef.current[urlKey]) {
-      URL.revokeObjectURL(previewUrlsRef.current[urlKey]);
-      setPreviewUrls(prev => {
-        const newUrls = { ...prev };
-        delete newUrls[urlKey];
-        previewUrlsRef.current = newUrls;
-        return newUrls;
+  const removeSeasonalBadge = async (index: number) => {
+    try {
+      // If we're in edit mode, we need to delete from storage and update DB
+      if (isEditMode && editingTemplateId) {
+        const storageBucket = process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET;
+        if (!storageBucket) {
+          throw new Error('Storage bucket name not found');
+        }
+
+        // Get current template details
+        const { data: template, error: templateError } = await dashboardSupabase
+          .from('templates')
+          .select('seasonal_badge_paths')
+          .eq('id', editingTemplateId)
+          .single();
+
+        if (templateError) throw templateError;
+
+        if (template.seasonal_badge_paths && template.seasonal_badge_paths[index]) {
+          // Delete the file from storage
+          const { error: deleteError } = await dashboardSupabase.storage
+            .from(storageBucket)
+            .remove([template.seasonal_badge_paths[index]]);
+
+          if (deleteError) throw deleteError;
+
+          // Update the database with new badge paths array
+          const newBadgePaths = [...template.seasonal_badge_paths];
+          newBadgePaths.splice(index, 1);
+
+          const { error: updateError } = await dashboardSupabase
+            .from('templates')
+            .update({
+              seasonal_badge_paths: newBadgePaths,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', editingTemplateId);
+
+          if (updateError) throw updateError;
+        }
+      }
+
+      // Revoke the blob URL for the removed badge
+      const urlKey = `seasonalBadge_${index}`;
+      if (previewUrlsRef.current[urlKey]) {
+        URL.revokeObjectURL(previewUrlsRef.current[urlKey]);
+        setPreviewUrls(prev => {
+          const newUrls = { ...prev };
+          delete newUrls[urlKey];
+          previewUrlsRef.current = newUrls;
+          return newUrls;
+        });
+      }
+
+      // Update local state
+      setFiles(prev => {
+        const newBadges = [...prev.seasonalBadges];
+        const newPreviews = [...prev.previews.seasonalBadges];
+        
+        newBadges.splice(index, 1);
+        newPreviews.splice(index, 1);
+        
+        return {
+          ...prev,
+          seasonalBadges: newBadges,
+          previews: {
+            ...prev.previews,
+            seasonalBadges: newPreviews
+          }
+        };
+      });
+      
+      setSeasonalBadges(prev => prev.filter((_, i) => i !== index));
+
+    } catch (error) {
+      console.error('Error removing seasonal badge:', error);
+      addToast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to remove seasonal badge',
+        variant: 'error',
       });
     }
-
-    setFiles(prev => {
-      const newBadges = [...prev.seasonalBadges];
-      const newPreviews = [...prev.previews.seasonalBadges];
-      
-      newBadges.splice(index, 1);
-      newPreviews.splice(index, 1);
-      
-      return {
-        ...prev,
-        seasonalBadges: newBadges,
-        previews: {
-          ...prev.previews,
-          seasonalBadges: newPreviews
-        }
-      };
-    });
-    
-    setSeasonalBadges(prev => prev.filter((_, i) => i !== index));
   };
 
   const formatImagePath = (path: string | null): string => {
@@ -1733,8 +1784,13 @@ export default function TemplatesPage() {
                       </label>
                       <button
                         type="button"
-                        onClick={() => removeSeasonalBadge(index)}
+                        onClick={() => {
+                          setLoading(true);
+                          removeSeasonalBadge(index)
+                            .finally(() => setLoading(false));
+                        }}
                         className="absolute -top-2 -right-2 rounded-full bg-red-500 p-1 text-white hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                        disabled={loading}
                       >
                         <Minus className="h-4 w-4" />
                       </button>
