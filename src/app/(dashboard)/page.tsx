@@ -10,17 +10,17 @@ export default function Home() {
   return (
     <div>
       <Metrics />
-      <div className="grid grid-cols-1 divide-y border-b border-border laptop:grid-cols-2 laptop:divide-x laptop:divide-y-0 laptop:divide-border">
-        <Container className="py-4 laptop:col-span-1">
-          <TemplateTrends />
-        </Container>
-        <Container className="py-4 laptop:col-span-1">
+      <div className="grid grid-cols-1 laptop:grid-cols-2">
+        <div className="flex flex-col divide-y border-b border-border laptop:border-r">
+          <Container className="py-4">
+            <TemplateTrends />
+          </Container>
+          <Container className="py-4">
+            <SubscriptionStatus />
+          </Container>
+        </div>
+        <Container className="py-4 border-b border-border">
           <TemplateLeaderboard />
-        </Container>
-      </div>
-      <div className="grid grid-cols-1 divide-y border-b border-border laptop:grid-cols-2 laptop:divide-x laptop:divide-y-0 laptop:divide-border">
-        <Container className="py-4 laptop:col-span-1">
-          <SubscriptionStatus />
         </Container>
       </div>
     </div>

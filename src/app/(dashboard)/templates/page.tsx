@@ -562,13 +562,35 @@ export default function TemplatesPage() {
 
       // Update assets if changed
       if (files.headerImage || files.thumbnail || files.dateImage || files.seasonalBadges.length > 0) {
-        await updateTemplateAssets(editingTemplateId, {
+        const updatedAssets = await updateTemplateAssets(editingTemplateId, {
           headerImage: files.headerImage,
           thumbnail: files.thumbnail,
           dateImage: files.dateImage,
           seasonalBadges: files.seasonalBadges,
           replaceExisting: true
         });
+
+        // Update the template with new asset paths
+        const { error: updateAssetsError } = await dashboardSupabase
+          .from('templates')
+          .update({
+            header_image_path: updatedAssets.headerImagePath,
+            thumbnail_path: updatedAssets.thumbnailPath,
+            date_image_path: updatedAssets.dateImagePath,
+            seasonal_badge_paths: updatedAssets.seasonalBadgePaths,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', editingTemplateId);
+
+        if (updateAssetsError) {
+          addToast({
+            title: 'Error',
+            description: 'Failed to update template asset paths.',
+            variant: 'error',
+          });
+          setLoading(false);
+          return;
+        }
       }
 
       // Reset form and state

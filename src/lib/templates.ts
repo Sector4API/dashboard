@@ -402,7 +402,7 @@ export const updateTemplateAssets = async (templateId: string, files: {
       }
     }
 
-    // Update header image if provided
+    // Upload header image
     if (files.headerImage) {
       headerImagePath = `${folderName}/${files.headerImage.name}`;
       await dashboardSupabase.storage
@@ -410,7 +410,7 @@ export const updateTemplateAssets = async (templateId: string, files: {
         .upload(headerImagePath, files.headerImage, { upsert: true });
     }
 
-    // Update thumbnail if provided
+    // Upload thumbnail if provided
     if (files.thumbnail) {
       thumbnailPath = `${folderName}/${files.thumbnail.name}`;
       await dashboardSupabase.storage
@@ -418,7 +418,7 @@ export const updateTemplateAssets = async (templateId: string, files: {
         .upload(thumbnailPath, files.thumbnail, { upsert: true });
     }
 
-    // Update date image if provided
+    // Upload date image if provided
     if (files.dateImage) {
       dateImagePath = `${folderName}/${files.dateImage.name}`;
       await dashboardSupabase.storage
@@ -446,7 +446,7 @@ export const updateTemplateAssets = async (templateId: string, files: {
       headerImagePath: headerImagePath || template.header_image_path,
       thumbnailPath: thumbnailPath || template.thumbnail_path,
       dateImagePath: dateImagePath || template.date_image_path,
-      seasonalBadgePaths
+      seasonalBadgePaths: seasonalBadgePaths.length > 0 ? seasonalBadgePaths : template.seasonal_badge_paths || []
     };
   } catch (error) {
     logger.error('Error updating template assets:', {
