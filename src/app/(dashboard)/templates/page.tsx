@@ -612,9 +612,11 @@ export default function TemplatesPage() {
       setIsEditMode(false);
       setEditingTemplateId(null);
 
-      // Fetch updated templates
+      // Fetch updated templates and update the state
       const updatedTemplates = await getTemplates();
-      setTemplates(updatedTemplates || []);
+      if (updatedTemplates) {
+        setTemplates(updatedTemplates);
+      }
 
       addToast({
         title: 'Success',
@@ -972,7 +974,9 @@ export default function TemplatesPage() {
   const handlePublish = async (id: string) => {
     try {
       const updatedTemplates = await handleTemplateUpdate(id, { is_public: true });
-      setTemplates(updatedTemplates || []);
+      if (updatedTemplates) {
+        setTemplates(updatedTemplates);
+      }
 
       addToast({
         title: 'Success',
