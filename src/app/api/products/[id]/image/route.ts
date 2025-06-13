@@ -23,8 +23,39 @@ export async function POST(
       process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY!
     );
 
-    // Generate a unique filename
-    const fileName = `${Date.now()}_${file.name}`;
+    // Initialize ProductApiClient for database operations
+    const client = new ProductApiClient({
+      supabaseUrl: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL!,
+      supabaseKey: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY!,
+      storageBucket: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET!,
+    });
+
+    // Get the current product to find the old image path
+    const { data: currentProduct, error: fetchError } = await supabase
+      .from('products')
+      .select('image_path')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) {
+      console.error('Error fetching current product:', fetchError);
+      return NextResponse.json({ success: false, error: 'Failed to fetch current product' }, { status: 500 });
+    }
+
+    // Delete the old image if it exists
+    if (currentProduct?.image_path) {
+      const { error: deleteError } = await supabase.storage
+        .from(process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET!)
+        .remove([currentProduct.image_path]);
+
+      if (deleteError) {
+        console.error('Error deleting old image:', deleteError);
+        // Continue with upload even if delete fails
+      }
+    }
+
+    // Use the original filename
+    const fileName = file.name;
 
     // Upload file to storage
     const { error: uploadError } = await supabase.storage
@@ -43,13 +74,6 @@ export async function POST(
     const { data: urlData } = supabase.storage
       .from(process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET!)
       .getPublicUrl(fileName);
-
-    // Initialize ProductApiClient for database operations
-    const client = new ProductApiClient({
-      supabaseUrl: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL!,
-      supabaseKey: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY!,
-      storageBucket: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET!,
-    });
 
     // Update the product record with the new image path
     const result = await client.updateProduct(id, {
