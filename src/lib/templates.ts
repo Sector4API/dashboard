@@ -6,8 +6,8 @@ type TemplateInput = {
   category: string[];
   headerImage: File;
   thumbnail: File;
-  dateImage: File;
-  seasonalBadges: (File | null)[];
+  dateImage?: File;
+  seasonalBadges?: (File | null)[];
   tags: string[];
   isPublic?: boolean;
   terms_section_background_color: string;
@@ -173,19 +173,22 @@ export const createTemplate = async (input: TemplateInput) => {
     uploadedFiles.push(thumbnailPath);
 
     // Upload date image
-    const datePath = `${folderName}/${input.dateImage.name}`;
-    const { error: dateError } = await dashboardSupabase.storage
-      .from(storageBucket)
-      .upload(datePath, input.dateImage);
+    let datePath = null;
+    if (input.dateImage) {
+      datePath = `${folderName}/${input.dateImage.name}`;
+      const { error: dateError } = await dashboardSupabase.storage
+        .from(storageBucket)
+        .upload(datePath, input.dateImage);
 
-    if (dateError) {
-      throw dateError;
+      if (dateError) {
+        throw dateError;
+      }
+      uploadedFiles.push(datePath);
     }
-    uploadedFiles.push(datePath);
 
     // Upload seasonal badges
     const badgePaths = await Promise.all(
-      input.seasonalBadges.map(async (badge) => {
+      (input.seasonalBadges || []).map(async (badge) => {
         if (badge) {
           const badgePath = `${folderName}/${badge.name}`;
           const { error: badgeError } = await dashboardSupabase.storage

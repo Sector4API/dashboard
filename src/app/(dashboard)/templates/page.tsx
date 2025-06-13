@@ -384,10 +384,10 @@ export default function TemplatesPage() {
         return;
       }
 
-      if (!files.headerImage || !files.thumbnail || !files.dateImage) {
+      if (!files.headerImage || !files.thumbnail) {
           addToast({
             title: 'Error',
-          description: 'Please upload all required images (Header, Thumbnail, and Date)',
+            description: 'Please upload required images (Header and Thumbnail)',
             variant: 'error',
           });
         setLoading(false);
@@ -395,15 +395,6 @@ export default function TemplatesPage() {
       }
 
       const seasonalBadgeFiles = files.seasonalBadges.filter(Boolean);
-      if (seasonalBadgeFiles.length === 0) {
-        addToast({
-          title: 'Error',
-          description: 'Please upload at least one seasonal badge',
-          variant: 'error',
-        });
-        setLoading(false);
-        return;
-      }
 
       try {
         const baseData = {
@@ -424,8 +415,8 @@ export default function TemplatesPage() {
           ...baseData,
           headerImage: files.headerImage,
           thumbnail: files.thumbnail,
-          dateImage: files.dateImage,
-          seasonalBadges: seasonalBadgeFiles
+          ...(files.dateImage && { dateImage: files.dateImage }),
+          ...(files.seasonalBadges.length > 0 && { seasonalBadges: files.seasonalBadges })
         });
 
         addToast({
@@ -1455,24 +1446,34 @@ export default function TemplatesPage() {
                 <div className="flex flex-wrap gap-2 sm:gap-4 mt-auto justify-center">
                   <button
                     className={`rounded px-4 py-2 text-sm text-white min-w-[80px] ${
-                      template.is_public 
+                      template.is_public || isEditMode
                       ? 'bg-gray-400 cursor-not-allowed' 
-                        : 'bg-green-500 hover:bg-green-600'
+                      : 'bg-green-500 hover:bg-green-600'
                     }`}
                     onClick={() => handlePublish(template.id)}
-                    disabled={template.is_public}
+                    disabled={template.is_public || isEditMode}
                   >
                     {template.is_public ? 'Published' : 'Publish'}
                   </button>
                   <button
-                    className="rounded bg-blue-500 px-4 py-2 text-sm text-white hover:bg-blue-600 min-w-[80px]"
+                    className={`rounded px-4 py-2 text-sm text-white min-w-[80px] ${
+                      isEditMode && editingTemplateId !== template.id
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-blue-500 hover:bg-blue-600'
+                    }`}
                     onClick={() => handleEdit(template.id)}
+                    disabled={isEditMode && editingTemplateId !== template.id}
                   >
                     Edit
                   </button>
                   <button
-                    className="rounded bg-red-500 px-4 py-2 text-sm text-white hover:bg-red-600 min-w-[80px]"
+                    className={`rounded px-4 py-2 text-sm text-white min-w-[80px] ${
+                      isEditMode
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-red-500 hover:bg-red-600'
+                    }`}
                     onClick={() => confirmDeleteTemplate(template.id, template.thumbnail_path)}
+                    disabled={isEditMode}
                   >
                     Delete
                   </button>
@@ -1665,7 +1666,7 @@ export default function TemplatesPage() {
               {/* Date Image */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                  Date Image <span className="text-red-500">*</span>:
+                  Date Image:
                   <span className="text-xs text-slate-500 ml-2">(Max: 600x190px)</span>
                 </label>
                 <div className="flex w-full items-center justify-center">
@@ -1716,7 +1717,7 @@ export default function TemplatesPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                    Seasonal Badges <span className="text-red-500">*</span>:
+                    Seasonal Badges:
                     <span className="text-xs text-slate-500 ml-2">(Max: 2048x2048px)</span>
                   </label>
                   <div className="flex items-center gap-2">
@@ -1994,7 +1995,6 @@ export default function TemplatesPage() {
                 onChange={handleInputChange}
                 className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 focus:border-blue-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700" 
                 placeholder="Add tags separated by commas"
-                required
               />
             </div>
 
