@@ -63,6 +63,8 @@ export default function TemplatesPage() {
   // Add this state near other state declarations
   const [isEditMode, setIsEditMode] = React.useState(false);
   const [editingTemplateId, setEditingTemplateId] = React.useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [allTemplates, setAllTemplates] = React.useState<typeof templates>([]);
   
   const categories = [
     "Supermarket",
@@ -123,23 +125,36 @@ export default function TemplatesPage() {
     });
   }, []);
 
-  // Update the fetchTemplates function to ensure the spinner is completely removed when no more templates are available
-  // Remove unused lastTemplateRef variable since it's not being used
+  // Add this function to handle search
+  const handleSearch = React.useCallback((query: string) => {
+    setSearchQuery(query);
+    if (!query.trim()) {
+      setTemplates(allTemplates);
+      return;
+    }
+    
+    const filteredTemplates = allTemplates.filter(template => 
+      template.name.toLowerCase().includes(query.toLowerCase())
+    );
+    setTemplates(filteredTemplates);
+  }, [allTemplates]);
+
+  // Modify the fetchTemplates function
   const fetchTemplates = async (page: number) => {
     setIsLoadingMore(true);
     try {
-      // Get templates sorted by updated_at and with updated display_orders
       const data = await getTemplates();
   
       if (!data || data.length === 0) {
         setHasMoreTemplates(false);
         setTemplates([]);
+        setAllTemplates([]);
         return;
       }
   
-      // Set all templates at once instead of paginating
       setTemplates(data);
-      setHasMoreTemplates(false); // Disable infinite scroll since we're loading all at once
+      setAllTemplates(data); // Store all templates
+      setHasMoreTemplates(false);
     } catch (error) {
       console.error('Template fetch error:', error);
       addToast({
@@ -1346,7 +1361,6 @@ export default function TemplatesPage() {
         </div>
       )}
       <Dialog open={isDialogOpen} onOpenChange={(open) => {
-        // console.log('Dialog state changed:', open); // Debugging log
         setIsDialogOpen(open);
       }}>
         <DialogContent aria-describedby="template-dialog-description">
@@ -1359,7 +1373,7 @@ export default function TemplatesPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              handleConfirm(); // Changed from handleSubmit() to handleConfirm()
+              handleConfirm();
               setIsDialogOpen(false);
             }}
           >
@@ -1410,89 +1424,122 @@ export default function TemplatesPage() {
           className="lg:w-[50%] w-full rounded-lg bg-white p-6 shadow-md dark:bg-slate-800"
           style={{ maxHeight: '1900px', overflowY: 'auto' }}
         >
-          <h2 className="mb-6 text-2xl font-bold text-slate-800 dark:text-white">Templates List</h2>
-          <div className="space-y-3">
-            {templates.map((template, index) => {
-              // Ensure we have a unique key by combining id with index
-              const uniqueKey = `${template.id}-${index}`;
-              return (
-              <div
-                key={uniqueKey}
-                draggable
-                onDragStart={(e) => handleDragStart(e, index)}
-                onDragOver={handleDragOver}
-                onDrop={(e) => handleDrop(e, index)}
-                className="flex flex-col rounded-lg bg-slate-100 p-4 transition-all hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 cursor-move"
+          <div className="flex flex-col gap-4">
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Templates List</h2>
+            
+            {/* Add search input */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search templates by name..."
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 pr-10 text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+              />
+              <svg
+                className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
               >
-                {/* Top section with image and name */}
-                <div className="flex items-center gap-4 mb-4">
-                  <GripVertical className="h-6 w-6 text-slate-400 flex-shrink-0" />
-                  <div className="relative w-20 h-20 sm:w-28 sm:h-28 rounded-lg overflow-hidden flex-shrink-0">
-                    {template.thumbnail_path ? (
-                      <Image
-                        src={formatImagePath(template.thumbnail_path)}
-                        alt={template.name}
-                        fill
-                        sizes="(max-width: 640px) 80px, 112px"
-                        className="object-cover"
-                        priority
-                      />
-                    ) : (
-                      <div className="h-full w-full bg-red-500"></div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-lg sm:text-xl font-bold text-slate-800 dark:text-white truncate block">{template.name}</span>
-                </div>
-                </div>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+            </div>
 
-                {/* Bottom section with buttons */}
-                <div className="flex flex-wrap gap-2 sm:gap-4 mt-auto justify-center">
-                  <button
-                    className={`rounded px-4 py-2 text-sm text-white min-w-[80px] ${
-                      template.is_public || isEditMode
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-green-500 hover:bg-green-600'
-                    }`}
-                    onClick={() => handlePublish(template.id)}
-                    disabled={template.is_public || isEditMode}
-                  >
-                    {template.is_public ? 'Published' : 'Publish'}
-                  </button>
-                  <button
-                    className={`rounded px-4 py-2 text-sm text-white min-w-[80px] ${
-                      isEditMode && editingTemplateId !== template.id
-                      ? 'bg-gray-400 cursor-not-allowed'
-                      : 'bg-blue-500 hover:bg-blue-600'
-                    }`}
-                    onClick={() => handleEdit(template.id)}
-                    disabled={isEditMode && editingTemplateId !== template.id}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className={`rounded px-4 py-2 text-sm text-white min-w-[80px] ${
-                      isEditMode
-                      ? 'bg-gray-400 cursor-not-allowed'
-                      : 'bg-red-500 hover:bg-red-600'
-                    }`}
-                    onClick={() => confirmDeleteTemplate(template.id, template.thumbnail_path)}
-                    disabled={isEditMode}
-                  >
-                    Delete
-                  </button>
+            <div className="space-y-3">
+              {templates.length === 0 && searchQuery && (
+                <div className="text-center py-4 text-slate-500 dark:text-slate-400">
+                  No templates found matching "{searchQuery}"
                 </div>
-              </div>
-              );
-            })}
-            {isLoadingMore && (
-              <div className="flex justify-center py-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Loading more templates...</span>
+              )}
+              {templates.map((template, index) => {
+                // Ensure we have a unique key by combining id with index
+                const uniqueKey = `${template.id}-${index}`;
+                return (
+                <div
+                  key={uniqueKey}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, index)}
+                  onDragOver={handleDragOver}
+                  onDrop={(e) => handleDrop(e, index)}
+                  className="flex flex-col rounded-lg bg-slate-100 p-4 transition-all hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 cursor-move"
+                >
+                  {/* Top section with image and name */}
+                  <div className="flex items-center gap-4 mb-4">
+                    <GripVertical className="h-6 w-6 text-slate-400 flex-shrink-0" />
+                    <div className="relative w-20 h-20 sm:w-28 sm:h-28 rounded-lg overflow-hidden flex-shrink-0">
+                      {template.thumbnail_path ? (
+                        <Image
+                          src={formatImagePath(template.thumbnail_path)}
+                          alt={template.name}
+                          fill
+                          sizes="(max-width: 640px) 80px, 112px"
+                          className="object-cover"
+                          priority
+                        />
+                      ) : (
+                        <div className="h-full w-full bg-red-500"></div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-lg sm:text-xl font-bold text-slate-800 dark:text-white truncate block">{template.name}</span>
+                    </div>
+                  </div>
+
+                  {/* Bottom section with buttons */}
+                  <div className="flex flex-wrap gap-2 sm:gap-4 mt-auto justify-center">
+                    <button
+                      className={`rounded px-4 py-2 text-sm text-white min-w-[80px] ${
+                        template.is_public || isEditMode
+                        ? 'bg-gray-400 cursor-not-allowed' 
+                        : 'bg-green-500 hover:bg-green-600'
+                      }`}
+                      onClick={() => handlePublish(template.id)}
+                      disabled={template.is_public || isEditMode}
+                    >
+                      {template.is_public ? 'Published' : 'Publish'}
+                    </button>
+                    <button
+                      className={`rounded px-4 py-2 text-sm text-white min-w-[80px] ${
+                        isEditMode && editingTemplateId !== template.id
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : 'bg-blue-500 hover:bg-blue-600'
+                      }`}
+                      onClick={() => handleEdit(template.id)}
+                      disabled={isEditMode && editingTemplateId !== template.id}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className={`rounded px-4 py-2 text-sm text-white min-w-[80px] ${
+                        isEditMode
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : 'bg-red-500 hover:bg-red-600'
+                      }`}
+                      onClick={() => confirmDeleteTemplate(template.id, template.thumbnail_path)}
+                      disabled={isEditMode}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+                );
+              })}
+              {isLoadingMore && (
+                <div className="flex justify-center py-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Loading more templates...</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

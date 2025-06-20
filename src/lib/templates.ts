@@ -129,7 +129,13 @@ export const createTemplate = async (input: TemplateInput) => {
         product_section_background_color: input.product_section_background_color,
         product_card_background_color: input.product_card_background_color,
         global_text_color: input.global_text_color,
-        display_order: 1
+        display_order: 1,
+        badge_position: {
+          x: 50,
+          y: 50,
+          rotation: 0,
+          scale: 1
+        }
       })
       .select()
       .single();
