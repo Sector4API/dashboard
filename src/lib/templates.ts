@@ -107,7 +107,11 @@ export const createTemplate = async (input: TemplateInput) => {
   }
 
   let templateId: string | null = null;
-  const folderName = input.name.toLowerCase().replace(/\s+/g, '-');
+  const folderName = input.name.toLowerCase()
+    .replace(/[^a-z0-9\s-_]/g, '') // Remove any characters that are not alphanumeric, space, hyphen or underscore
+    .replace(/\s+/g, '-') // Replace spaces with hyphens
+    .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
+    .replace(/^-+|-+$/g, ''); // Remove hyphens from start and end
   const uploadedFiles: string[] = [];
 
   try {
@@ -376,7 +380,11 @@ export const updateTemplateAssets = async (templateId: string, files: {
 
     if (templateError) throw templateError;
 
-    const folderName = template.name.toLowerCase().replace(/\s+/g, '-');
+    const folderName = template.name.toLowerCase()
+      .replace(/[^a-z0-9\s-_]/g, '') // Remove any characters that are not alphanumeric, space, hyphen or underscore
+      .replace(/\s+/g, '-') // Replace spaces with hyphens
+      .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
+      .replace(/^-+|-+$/g, ''); // Remove hyphens from start and end
     let headerImagePath = null;
     let thumbnailPath = null;
     let dateImagePath = null;

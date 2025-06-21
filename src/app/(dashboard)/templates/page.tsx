@@ -812,7 +812,8 @@ export default function TemplatesPage() {
           badge_position: {
             x: badgePosition.x,
             y: badgePosition.y,
-            rotation: newRotation
+            rotation: newRotation,
+            scale: badgeScale
           }
         })
         .eq('id', editingTemplateId)
@@ -1425,7 +1426,12 @@ export default function TemplatesPage() {
           style={{ maxHeight: '1900px', overflowY: 'auto' }}
         >
           <div className="flex flex-col gap-4">
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Templates List</h2>
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Templates List</h2>
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                Total Templates: {templates.length}
+              </div>
+            </div>
             
             {/* Add search input */}
             <div className="relative">
@@ -1549,6 +1555,10 @@ export default function TemplatesPage() {
             <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
               {isEditMode ? 'Update Template' : 'Create Template'}
             </h2>
+            {/* Add template count to the header */}
+            <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              Total Templates: {templates.length}
+            </div>
             {isEditMode && (
               <button
                 className="text-sm text-red-500 hover:text-red-600 focus:outline-none"
