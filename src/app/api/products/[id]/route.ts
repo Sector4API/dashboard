@@ -1,9 +1,12 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import ProductApiClient from '@/lib/product-api-client';
+import { createClient } from '@supabase/supabase-js';
 
 interface RouteContext {
-  params: { id: string };
+  params: {
+    id: string;
+  };
 }
 
 export async function DELETE(req: NextRequest, context: RouteContext) {
@@ -50,8 +53,8 @@ export async function GET(req: NextRequest, context: RouteContext) {
 }
 
 export async function PATCH(req: NextRequest, context: RouteContext) {
-  const id = context.params.id;
-  if (!id) return NextResponse.json({ error: 'Invalid product ID' }, { status: 400 });
+  const productId = context.params.id;
+  if (!productId) return NextResponse.json({ error: 'Invalid product ID' }, { status: 400 });
 
   // Validate environment variables
   if (!process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL || 
@@ -64,14 +67,16 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
   }
 
   try {
-    const body = await req.json();
-    let { productName, productTag, category } = body;
+    const formData = await req.formData();
+    const productName = formData.get('productName');
+    const productTag = formData.get('productTag');
+    const mainCategory = formData.get('mainCategory');
+    const fileInput = formData.get('fileInput') as File | null;
 
     // Ensure productTag is an array of strings
+    let productTagArray: string[] = [];
     if (productTag && typeof productTag === 'string') {
-      productTag = productTag.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
-    } else if (productTag && Array.isArray(productTag)) {
-      productTag = productTag.map(tag => String(tag).trim()).filter(tag => tag.length > 0);
+      productTagArray = productTag.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
     }
 
     const client = new ProductApiClient({
@@ -80,10 +85,88 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       storageBucket: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET,
     });
 
-    const result = await client.updateProduct(
-      isNaN(Number(id)) ? id : Number(id),
-      { productName, productTag, category }
+    // First get the current product to know its image path
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY
     );
+
+    const { data: currentProduct, error: fetchError } = await supabase
+      .from('products_new')
+      .select('image_path')
+      .eq('id', productId)
+      .single();
+
+    if (fetchError) {
+      console.error('Error fetching current product:', fetchError);
+      return NextResponse.json({ error: 'Failed to fetch current product' }, { status: 500 });
+    }
+
+    // Handle file upload if present
+    let imagePath = undefined;
+    if (fileInput) {
+      // Get the directory from current image path
+      let uploadDirectory = '';
+      if (currentProduct?.image_path) {
+        const lastSlashIndex = currentProduct.image_path.lastIndexOf('/');
+        if (lastSlashIndex !== -1) {
+          uploadDirectory = currentProduct.image_path.substring(0, lastSlashIndex + 1);
+        }
+      } else {
+        // If no existing image, determine directory from main category
+        const categoryMap: { [key: string]: string } = {
+          'Savoury': 'savoury/',
+          'Frozen-veggies-breads': 'frozen-veggies-breads/',
+          'Pickle': 'pickle/',
+          'Cookies': 'cookies/',
+          'Spreads': 'spreads/',
+          'Chocolates': 'chocolates/',
+          'Noodles-Pasta': 'noodles-pasta/',
+          'Sauces': 'sauces/',
+          'Sweets': 'sweets/',
+          'Cereals': 'cereals/'
+        };
+        uploadDirectory = categoryMap[mainCategory as string] || '';
+      }
+
+      // Keep the original file name from the upload
+      const fileName = fileInput.name;
+      const fullPath = uploadDirectory + fileName;
+
+      // Delete the old image if it exists
+      if (currentProduct?.image_path) {
+        const { error: deleteError } = await supabase.storage
+          .from(process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET)
+          .remove([currentProduct.image_path]);
+
+        if (deleteError) {
+          console.error('Error deleting old image:', deleteError);
+          // Continue with upload even if delete fails
+        }
+      }
+
+      // Upload the new image
+      const { error: uploadError } = await supabase.storage
+        .from(process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET)
+        .upload(fullPath, fileInput, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('Error uploading new image:', uploadError);
+        return NextResponse.json({ error: 'Failed to upload new image' }, { status: 500 });
+      }
+
+      imagePath = fullPath;
+    }
+
+    const result = await client.updateProduct(productId, {
+      product_name: productName as string,
+      product_tag: productTagArray,
+      main_category: mainCategory as string,
+      ...(imagePath && { image_path: imagePath })
+    });
 
     if (result.success) {
       return NextResponse.json({ 
@@ -98,10 +181,9 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     }, { status: 500 });
 
   } catch (error) {
-    console.error("[API PATCH /api/products/[id]] Error:", error);
+    console.error('Error updating product:', error);
     return NextResponse.json({ 
-      error: error instanceof Error ? error.message : 'Unknown error in PATCH',
-      details: error
+      error: error instanceof Error ? error.message : 'Failed to update product' 
     }, { status: 500 });
   }
 }

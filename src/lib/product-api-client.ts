@@ -12,11 +12,22 @@ interface UploadOptions {
   customProductTag?: string;
 }
 
+interface Product {
+  id: string; // UUID
+  product_name: string;
+  image_path: string;
+  created_at?: string;
+  product_tag?: string[];
+  description?: string;
+  main_category?: string;
+}
+
 interface ProductUpdatePayload {
-  productName?: string;
-  productTag?: string[];
-  imagePath?: string;
-  category?: string;
+  product_name?: string;
+  product_tag?: string[];
+  image_path?: string;
+  main_category?: string;
+  description?: string;
 }
 
 class ProductApiClient {
@@ -56,7 +67,7 @@ class ProductApiClient {
       if (uploadError) throw uploadError;
 
       const { data: productData, error: productError } = await this.supabase
-        .from('products')
+        .from('products_new')
         .insert([{ product_name: productName, tags: [productTag], image_path: fileName }])
         .select();
 
@@ -70,16 +81,17 @@ class ProductApiClient {
     }
   }
 
-  async updateProduct(productId: number | string, updates: ProductUpdatePayload) {
+  async updateProduct(productId: string, updates: ProductUpdatePayload) {
     try {
-      const updateData: any = {};
-      if (updates.productName !== undefined) updateData.product_name = updates.productName;
-      if (updates.productTag !== undefined) updateData.tags = updates.productTag;
-      if (updates.imagePath !== undefined) updateData.image_path = updates.imagePath;
-      if (updates.category !== undefined) updateData.main_category = updates.category;
+      const updateData: Partial<Product> = {};
+      if (updates.product_name !== undefined) updateData.product_name = updates.product_name;
+      if (updates.product_tag !== undefined) updateData.product_tag = updates.product_tag;
+      if (updates.image_path !== undefined) updateData.image_path = updates.image_path;
+      if (updates.main_category !== undefined) updateData.main_category = updates.main_category;
+      if (updates.description !== undefined) updateData.description = updates.description;
 
       const { data, error } = await this.supabase
-        .from('products')
+        .from('products_new')
         .update(updateData)
         .eq('id', productId)
         .select()
@@ -92,40 +104,35 @@ class ProductApiClient {
     }
   }
 
-  async deleteProduct(productId: number | string) {
+  async deleteProduct(productId: string) {
     try {
       // Fetch the product to get the image path
       const { data: existingProduct, error: fetchError } = await this.supabase
-        .from('products')
+        .from('products_new')
         .select('*')
         .eq('id', productId)
         .single();
 
       if (fetchError) throw fetchError;
-      if (!existingProduct) throw new Error(`Product with ID ${productId} not found`);
 
-      const imagePath = existingProduct.image_path;
-
-      // Delete the product from the database
+      // Delete the product
       const { error: deleteError } = await this.supabase
-        .from('products')
+        .from('products_new')
         .delete()
         .eq('id', productId);
 
       if (deleteError) throw deleteError;
 
-      // Delete the image from the storage bucket
-      if (imagePath) {
+      // If product had an image, delete it from storage
+      if (existingProduct?.image_path) {
         const { error: storageError } = await this.supabase.storage
           .from(this.storageBucket)
-          .remove([imagePath]);
+          .remove([existingProduct.image_path]);
 
-        if (storageError) {
-          throw storageError;
-        }
+        if (storageError) throw storageError;
       }
 
-      return { success: true, message: `Product with ID ${productId} and its associated image were successfully deleted` };
+      return { success: true };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
@@ -140,13 +147,13 @@ class ProductApiClient {
 
       // Then, search by product name
       const { data: nameResults, error: nameError } = await this.supabase
-        .from('products')
-        .select('product_name,tags,image_path,id,main_category')
+        .from('products_new')
+        .select('product_name,product_tag,image_path,id,main_category')
         .ilike('product_name', `%${query}%`);
 
       if (nameError) {
-        console.error('Name search error:', nameError);
-        throw nameError;
+        console.error('Name search error:', nameError.message);
+        return { found: false, error: nameError.message };
       }
 
       // Log the search URL for tag-based search
@@ -154,13 +161,13 @@ class ProductApiClient {
 
       // Search by tags
       const { data: tagResults, error: tagError } = await this.supabase
-        .from('products')
-        .select('product_name,tags,image_path,id,main_category')
-        .filter('tags', 'cs', `{${query}}`);
+        .from('products_new')
+        .select('product_name,product_tag,image_path,id,main_category')
+        .filter('product_tag', 'cs', `{${query}}`);
 
       if (tagError) {
-        console.error('Tag search error:', tagError);
-        throw tagError;
+        console.error('Tag search error:', tagError.message);
+        return { found: false, error: tagError.message };
       }
 
       // Log the results
@@ -185,7 +192,7 @@ class ProductApiClient {
             return {
               ...product,
               imageUrl: urlData.publicUrl,
-              product_tag: product.tags,
+              product_tag: product.product_tag,
               category: product.main_category,
             };
           })
@@ -231,8 +238,8 @@ class ProductApiClient {
   async searchByName(query: string) {
     try {
       const { data, error } = await this.supabase
-        .from('products')
-        .select('product_name, tags, image_path, id, main_category')
+        .from('products_new')
+        .select('product_name, product_tag, image_path, id, main_category')
         .ilike('product_name', `%${query}%`);
 
       if (error) throw error;
@@ -245,7 +252,7 @@ class ProductApiClient {
             return {
               ...product,
               imageUrl: urlData.publicUrl,
-              product_tag: product.tags,
+              product_tag: product.product_tag,
               category: product.main_category,
             };
           })
@@ -265,7 +272,7 @@ class ProductApiClient {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
       const { data, error, count } = await this.supabase
-        .from('products')
+        .from('products_new')
         .select('*', { count: 'exact' })
         .order('product_name', { ascending: true })
         .range(from, to);
@@ -279,8 +286,8 @@ class ProductApiClient {
           return {
             ...product,
             imageUrl: urlData.publicUrl,
-            product_tag: product.tags,
-            category: product.main_category,
+            product_tag: product.product_tag || [],
+            main_category: product.main_category || ''
           };
         })
       );
@@ -300,10 +307,10 @@ class ProductApiClient {
     }
   }
 
-  async getProductById(id: string | number) {
+  async getProductById(id: string) {
     try {
       const { data, error } = await this.supabase
-        .from('products')
+        .from('products_new')
         .select('*')
         .eq('id', id)
         .single();
@@ -315,7 +322,7 @@ class ProductApiClient {
       return {
         ...data,
         imageUrl: urlData.publicUrl,
-        product_tag: data.tags,
+        product_tag: data.product_tag,
         category: data.main_category,
       };
     } catch (error) {
@@ -327,7 +334,7 @@ class ProductApiClient {
     try {
       // console.log("API Client: Starting getDistinctCategories...");
       const { data, error } = await this.supabase
-        .from('products')
+        .from('products_new')
         .select('main_category')
         .not('main_category', 'is', null)
         .neq('main_category', '')
@@ -362,20 +369,16 @@ class ProductApiClient {
     }
   }
 
-  async moveToTrash(productId: number | string) {
+  async moveToTrash(productId: string) {
     try {
-      // console.log('Moving product to trash:', productId);
-      // First, get the product details
+      // Get the product details
       const { data: product, error: fetchError } = await this.supabase
-        .from('products')
+        .from('products_new')
         .select('*')
         .eq('id', productId)
         .single();
 
       if (fetchError) throw fetchError;
-      if (!product) throw new Error(`Product with ID ${productId} not found`);
-
-      // console.log('Found product:', product);
 
       // Move the image to trash bucket if it exists
       if (product.image_path) {
@@ -421,7 +424,7 @@ class ProductApiClient {
 
       // Delete from products table
       const { error: deleteError } = await this.supabase
-        .from('products')
+        .from('products_new')
         .delete()
         .eq('id', productId);
 
@@ -434,7 +437,7 @@ class ProductApiClient {
     }
   }
 
-  async moveMultipleToTrash(productIds: (number | string)[]) {
+  async moveMultipleToTrash(productIds: (string)[]) {
     try {
       const results = await Promise.all(productIds.map(id => this.moveToTrash(id)));
       const allSuccessful = results.every(result => result.success);
@@ -489,7 +492,7 @@ class ProductApiClient {
     }
   }
 
-  async restoreFromTrash(trashItemId: number | string) {
+  async restoreFromTrash(trashItemId: string) {
     try {
       // Get the trash item
       const { data: trashItem, error: fetchError } = await this.supabase
@@ -522,7 +525,7 @@ class ProductApiClient {
 
       // Insert back into products table
       const { error: restoreError } = await this.supabase
-        .from('products')
+        .from('products_new')
         .insert([{
           id: trashItem.product_id,
           product_name: trashItem.product_name,
@@ -549,7 +552,7 @@ class ProductApiClient {
     }
   }
 
-  async permanentlyDeleteFromTrash(trashItemId: number | string) {
+  async permanentlyDeleteFromTrash(trashItemId: string) {
     try {
       // Get the trash item first to get the image path
       const { data: trashItem, error: fetchError } = await this.supabase
@@ -578,6 +581,248 @@ class ProductApiClient {
       return { success: true, message: 'Item permanently deleted' };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  async searchByMainCategory(category: string) {
+    try {
+      const { data, error } = await this.supabase
+        .from('products_new')
+        .select('*')
+        .ilike('main_category', `%${category}%`);
+
+      if (error) throw error;
+
+      // If products found, get the image URLs
+      if (data && data.length > 0) {
+        const productsWithUrls = await Promise.all(data.map(async (product) => {
+          const { data: urlData } = this.supabase.storage.from(this.storageBucket).getPublicUrl(product.image_path);
+          return {
+            ...product,
+            imageUrl: urlData.publicUrl
+          };
+        }));
+
+        return {
+          found: true,
+          products: productsWithUrls,
+          count: productsWithUrls.length,
+          category: category
+        };
+      } else {
+        return {
+          found: false,
+          message: `No products found in category "${category}"`,
+          category: category
+        };
+      }
+    } catch (error) {
+      console.error('Error searching by main category:', error);
+      return {
+        found: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        category: category
+      };
+    }
+  }
+
+  async searchByNameWithCategories(productName: string, categories: string[] = []) {
+    try {
+      // Start with the base query for product name
+      let query = this.supabase
+        .from('products_new')
+        .select('*')
+        .ilike('product_name', `%${productName}%`);
+
+      // If categories are provided, add the category filter
+      if (categories && categories.length > 0) {
+        // Use in() operator for exact matches in the provided categories
+        query = query.in('main_category', categories);
+      }
+
+      // Execute the query
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      // If products found, get the image URLs
+      if (data && data.length > 0) {
+        const productsWithUrls = await Promise.all(data.map(async (product) => {
+          const { data: urlData } = this.supabase.storage.from(this.storageBucket).getPublicUrl(product.image_path);
+          return {
+            ...product,
+            imageUrl: urlData.publicUrl
+          };
+        }));
+
+        // Group products by category for better organization
+        const productsByCategory = productsWithUrls.reduce((acc: { [key: string]: any[] }, product) => {
+          const category = product.main_category || 'Uncategorized';
+          if (!acc[category]) {
+            acc[category] = [];
+          }
+          acc[category].push(product);
+          return acc;
+        }, {});
+
+        return {
+          found: true,
+          products: productsWithUrls,
+          productsByCategory: productsByCategory,
+          count: productsWithUrls.length,
+          categoriesFound: Object.keys(productsByCategory),
+          searchCriteria: {
+            productName: productName,
+            categories: categories
+          }
+        };
+      } else {
+        const categoriesMessage = categories.length > 0
+          ? ` in categories: ${categories.join(', ')}`
+          : '';
+        return {
+          found: false,
+          message: `No products found matching "${productName}"${categoriesMessage}`,
+          searchCriteria: {
+            productName: productName,
+            categories: categories
+          }
+        };
+      }
+    } catch (error) {
+      console.error('Error searching by name with categories:', error);
+      return {
+        found: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        searchCriteria: {
+          productName: productName,
+          categories: categories
+        }
+      };
+    }
+  }
+
+  async getAllCategories() {
+    try {
+      const { data, error } = await this.supabase
+        .from('products_new')
+        .select('main_category')
+        .not('main_category', 'is', null);
+
+      if (error) throw error;
+
+      // Extract unique categories
+      const uniqueCategories = [...new Set(data
+        .map(item => item.main_category)
+        .filter(category => category !== null && category !== '')
+      )].sort();
+
+      return {
+        success: true,
+        categories: uniqueCategories,
+        count: uniqueCategories.length
+      };
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  async getProductsByCategories(categories: string[] = [], options: { limit?: number; sortBy?: string; ascending?: boolean } = {}) {
+    try {
+      let query = this.supabase
+        .from('products_new')
+        .select('*');
+
+      // Apply category filter if categories are provided
+      if (categories && categories.length > 0) {
+        query = query.in('main_category', categories);
+      }
+
+      // Apply sorting if specified
+      if (options.sortBy) {
+        query = query.order(options.sortBy, {
+          ascending: options.ascending !== false
+        });
+      }
+
+      // Apply limit if specified
+      if (options.limit) {
+        query = query.limit(options.limit);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        // Add image URLs to all products
+        const productsWithUrls = await Promise.all(data.map(async (product) => {
+          const { data: urlData } = this.supabase.storage.from(this.storageBucket).getPublicUrl(product.image_path);
+          return {
+            ...product,
+            imageUrl: urlData.publicUrl
+          };
+        }));
+
+        // Group products by category
+        const productsByCategory = productsWithUrls.reduce((acc: { [key: string]: { products: any[]; count: number } }, product) => {
+          const category = product.main_category || 'Uncategorized';
+          if (!acc[category]) {
+            acc[category] = {
+              products: [],
+              count: 0
+            };
+          }
+          acc[category].products.push(product);
+          acc[category].count++;
+          return acc;
+        }, {});
+
+        // Calculate totals
+        const totalProducts = productsWithUrls.length;
+        const categoriesFound = Object.keys(productsByCategory);
+
+        return {
+          success: true,
+          productsByCategory,
+          categories: categoriesFound,
+          totalProducts,
+          categoryStats: categoriesFound.map(category => ({
+            category,
+            count: productsByCategory[category].count
+          })),
+          searchCriteria: {
+            categories,
+            options
+          }
+        };
+      } else {
+        const categoriesMessage = categories.length > 0
+          ? ` in categories: ${categories.join(', ')}`
+          : '';
+        return {
+          success: false,
+          message: `No products found${categoriesMessage}`,
+          searchCriteria: {
+            categories,
+            options
+          }
+        };
+      }
+    } catch (error) {
+      console.error('Error fetching products by categories:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        searchCriteria: {
+          categories,
+          options
+        }
+      };
     }
   }
 }

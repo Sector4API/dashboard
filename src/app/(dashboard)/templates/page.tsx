@@ -1427,7 +1427,7 @@ export default function TemplatesPage() {
         >
           <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Templates List</h2>
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Templates List</h2>
               <div className="text-sm text-gray-500 dark:text-gray-400">
                 Total Templates: {templates.length}
               </div>

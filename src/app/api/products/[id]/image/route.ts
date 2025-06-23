@@ -32,7 +32,7 @@ export async function POST(
 
     // Get the current product to find the old image path
     const { data: currentProduct, error: fetchError } = await supabase
-      .from('products')
+      .from('products_new')
       .select('image_path')
       .eq('id', id)
       .single();

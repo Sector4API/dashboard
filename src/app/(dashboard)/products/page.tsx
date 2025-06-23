@@ -9,29 +9,30 @@ import { Spinner } from '@/components/ui/spinner';
 import { useRouter } from 'next/navigation';
 
 interface Product {
-  id: number;
+  id: string;
   product_name: string;
   product_tag: string[];
   imageUrl: string;
-  category?: string;
+  main_category?: string;
 }
 
 const PAGE_SIZE = 40;
 
 const categoryKeywords: Record<string, string[]> = {
-  'Skincare': ['lotion', 'serum', 'moisturizer', 'cleanser', 'cream', 'face', 'vera', 'beauty', 'body wash', 'soap', 'balm', 'oil', 'mask', 'peel', 'toner'],
-  'Sunscreen': ['sunscreen', 'spf', 'sunblock', 'sun cream'],
-  'Electronics': ['headphone', 'bluetooth', 'wireless', 'charger', 'cable', 'earbud', 'speaker', 'tech', 'gadget', 'adapter', 'power bank', 'keyboard', 'mouse', 'monitor'],
-  'Apparel': ['shirt', 't-shirt', 'pants', 'jacket', 'dress', 'cotton', 'clothing', 'wear', 'socks', 'hat', 'hoodie', 'jeans', 'sweater', 'shorts'],
-  'Home': ['mug', 'plate', 'decor', 'kitchen', 'furniture', 'towel', 'candle', 'utensil', 'bedding', 'lighting', 'storage'],
-  'Books': ['book', 'novel', 'fiction', 'non-fiction', 'reading', 'magazine', 'journal', 'textbook'],
-  'Fitness': ['yoga', 'mat', 'dumbbell', 'resistance band', 'fitness', 'workout', 'protein', 'supplement'],
-  'Accessories': ['bag', 'watch', 'jewelry', 'wallet', 'belt', 'scarf', 'sunglasses', 'backpack'],
-  'Grocery': ['food', 'snack', 'drink', 'beverage', 'organic', 'pantry', 'cereal', 'coffee', 'tea', 'sauce', 'spice', 'pasta', 'rice'],
-  'Toys & Games': ['toy', 'game', 'puzzle', 'doll', 'action figure', 'board game'],
-  'Automotive': ['car', 'auto', 'vehicle', 'tire', 'motor', 'oil', 'wax', 'polish'],
-  'Pet Supplies': ['pet', 'dog', 'cat', 'food', 'leash', 'collar', 'toy', 'bed']
-  // Add more categories as needed
+  'Savoury': ['savoury'],
+  'Frozen-veggies-breads': ['frozen food'],
+  'Pickle': ['pickle'],
+  'Cookies': ['cookies'],
+  'Spreads': ['spread'],
+  'Chocolates': ['chocolate'],
+  'Noodles-Pasta': ['noodle', 'pasta', 'spaghetti', 'macaroni', 'vermicelli'],
+  'Sauces': ['sauce'],
+  'Sweets': ['sweet'],
+  'Cereals': ['cereal'],
+  'Vegetables': ['Vegetables'],
+  'Fruits': ['fruits'],
+  'Meat-Seafoods': ['Meat-Seafoods'],
+  'Condiments': ['Condiments']
 };
 
 const getProductCategories = (product: Product): string[] => {
@@ -89,7 +90,7 @@ const ProductsPage = () => {
   const [searchError, setSearchError] = useState<string | null>(null);
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [productToDelete, setProductToDelete] = useState<number | null>(null);
+  const [productToDelete, setProductToDelete] = useState<string | null>(null);
 
   const [pageLoading, setPageLoading] = useState(false);
 
@@ -98,18 +99,16 @@ const ProductsPage = () => {
   const prevEditLoadingRef = useRef(editLoading);
   const isMountedSelectedTagRef = useRef(false);
 
-  const [dynamicCategories, setDynamicCategories] = useState<string[]>([]);
-
   // Add new state for multiple selection
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
-  const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set());
+  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
 
   const [bulkCategoryValue, setBulkCategoryValue] = useState<string>('');
   const [bulkNewCategoryName, setBulkNewCategoryName] = useState<string>('');
   const [showBulkNewCategoryInput, setShowBulkNewCategoryInput] = useState<boolean>(false);
   const [bulkUpdateLoading, setBulkUpdateLoading] = useState(false);
 
-  const confirmDeleteProduct = (productId: number) => {
+  const confirmDeleteProduct = (productId: string) => {
     setProductToDelete(productId);
     setDeleteDialogOpen(true);
   };
@@ -126,7 +125,7 @@ const ProductsPage = () => {
     setProductToDelete(null);
   };
 
-  const handleDelete = async (productId: number) => {
+  const handleDelete = async (productId: string) => {
     try {
       const client = new ProductApiClient({
         supabaseUrl: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL!,
@@ -224,172 +223,88 @@ const ProductsPage = () => {
     router.push('/products/trash');
   };
 
-  const fetchDynamicCategories = async () => {
-    try {
-      // console.log("Starting fetchDynamicCategories...");
-      const res = await fetch('/api/products/categories', {
-        method: 'GET',
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        },
-        cache: 'no-store'
-      });
-      
-      if (!res.ok) {
-        // console.error("Categories API response not OK:", res.status);
-        throw new Error('Failed to fetch categories');
-      }
-      
-      const data = await res.json();
-      // console.log("Raw API response:", data);
-      
-      if (Array.isArray(data.categories)) {
-        // console.log("Setting dynamicCategories to:", data.categories);
-        setDynamicCategories(data.categories);
-      } else {
-        // console.error("Unexpected categories data format:", data);
-        setDynamicCategories([]);
-      }
-    } catch (err) {
-      // console.error("Error in fetchDynamicCategories:", err);
-      setDynamicCategories([]);
-    }
-  };
-
   const openEditDialog = async (product: Product) => {
-    // console.log("Opening edit dialog for product:", product);
-    // Fetch latest categories before opening dialog
-    await fetchDynamicCategories();
-    // console.log("Current dynamic categories:", dynamicCategories);
+    console.log('Opening edit dialog with product:', {
+      id: product.id,
+      name: product.product_name,
+      tags: product.product_tag,
+      main_category: product.main_category,
+      imageUrl: product.imageUrl
+    });
+
+    // Normalize the category value to match exactly with our predefined categories
+    let normalizedCategory = '';
+    if (product.main_category) {
+      // Find the exact matching category from our predefined list
+      const exactMatch = Object.keys(categoryKeywords).find(
+        cat => cat.toLowerCase() === product.main_category?.toLowerCase()
+      );
+      if (exactMatch) {
+        normalizedCategory = exactMatch;
+      }
+    }
     
+    console.log('Normalized category:', normalizedCategory);
+
     setEditProduct(product);
     setEditName(product.product_name);
-    setEditTag(Array.isArray(product.product_tag) ? product.product_tag : (product.product_tag ? [product.product_tag as unknown as string] : []));
-    
-    // If the product has a category, set it regardless of whether it's in known categories
-    if (product.category) {
-      // console.log("Setting category for product:", product.category);
-      setSelectedCategoryValue(product.category);
-      setEditCategory(product.category);
-      setShowNewCategoryInput(false);
-      setNewCategoryName('');
-    } else {
-      setSelectedCategoryValue('');
-      setEditCategory(undefined);
-      setShowNewCategoryInput(false);
-      setNewCategoryName('');
-    }
+    setEditTag(Array.isArray(product.product_tag) ? product.product_tag : []);
     setEditImage(null);
+    setEditCategory(normalizedCategory);
+    setSelectedCategoryValue(normalizedCategory);
+    setShowNewCategoryInput(false);
+    setNewCategoryName('');
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editProduct) return;
 
-    let finalCategory = '';
-    if (selectedCategoryValue === '__ADD_NEW__') {
-      finalCategory = newCategoryName.trim();
-    } else {
-      finalCategory = selectedCategoryValue.trim();
-    }
-
-    if (selectedCategoryValue === '__ADD_NEW__' && !finalCategory) {
-        addToast({
-            title: 'Error',
-            description: 'Please enter a name for the new category.',
-            variant: 'error',
-        });
-        return;
-    }
-    
-    const currentEditCategory = selectedCategoryValue === '__ADD_NEW__' ? newCategoryName.trim() : selectedCategoryValue.trim();
-    // console.log("Submitting edit with category:", currentEditCategory);
+    console.log('Submitting edit with values:', {
+      name: editName,
+      tags: editTag,
+      category: selectedCategoryValue,
+      hasImage: !!editImage
+    });
 
     setEditLoading(true);
     try {
-      // console.log("Sending PATCH request with category:", currentEditCategory);
-      const res = await fetch(`/api/products/${editProduct.id}`, {
+      const formData = new FormData();
+      if (editImage) {
+        formData.append('fileInput', editImage);
+      }
+      formData.append('productName', editName);
+      formData.append('productTag', editTag.join(','));
+      formData.append('mainCategory', selectedCategoryValue === '__ADD_NEW__' ? newCategoryName : selectedCategoryValue);
+
+      const response = await fetch(`/api/products/${editProduct.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          productName: editName, 
-          productTag: editTag.filter(tag => tag.trim() !== ''),
-          category: currentEditCategory
-        }),
+        body: formData,
       });
-      const result = await res.json();
-      // console.log("PATCH response:", result);
+
+      if (!response.ok) {
+        throw new Error('Failed to update product');
+      }
+
+      const result = await response.json();
+      console.log('Update response:', result);
+
+      addToast({
+        title: 'Success',
+        description: 'Product updated successfully!',
+        variant: 'success',
+      });
+
+      setEditProduct(null);
       
-      if (result.success) {
-        let imageUrl = editProduct.imageUrl;
-        if (editImage) {
-          const formData = new FormData();
-          formData.append('fileInput', editImage);
-          formData.append('productName', editName);
-          formData.append('productTag', editTag.filter(tag => tag.trim() !== '').join(','));
-          if (currentEditCategory) {
-            formData.append('category', currentEditCategory);
-          }
-          const uploadRes = await fetch(`/api/products/${editProduct.id}/image`, {
-            method: 'POST',
-            body: formData,
-          });
-          const uploadResult = await uploadRes.json();
-          if (uploadResult.success) {
-            imageUrl = uploadResult.imageUrl;
-          }
-        }
-
-        // console.log("Edit successful, refreshing categories...");
-        
-        // First, update the products list to reflect the new category
-        setProducts(prev => {
-          const updated = prev.map(p => 
-            p.id === editProduct.id 
-              ? { ...p, product_name: editName, product_tag: editTag, imageUrl: imageUrl, category: currentEditCategory } 
-              : p
-          );
-          // console.log("Updated products list:", updated);
-          return updated;
-        });
-
-        // Then refresh the categories with multiple attempts
-        for (let i = 0; i < 3; i++) {
-          // console.log(`Attempt ${i + 1} to refresh categories...`);
-          await fetchDynamicCategories();
-          await new Promise(resolve => setTimeout(resolve, 500)); // Wait between attempts
-        }
-
-        if (searchTerm.trim()) {
-          const client = new ProductApiClient({
-            supabaseUrl: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL!,
-            supabaseKey: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY!,
-            storageBucket: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET!,
-          });
-          const searchResult = await client.searchByTag(searchTerm.trim());
-          if (searchResult.found && searchResult.products) {
-            setSearchResults(searchResult.products);
-          } else {
-            setSearchResults([]);
-            setSearchError('No products found for this tag.');
-          }
-        }
-
-        addToast({
-          title: 'Success',
-          description: 'Product updated successfully!',
-          variant: 'success',
-        });
-        setEditProduct(null);
+      // Refresh the products list
+      if (selectedTag && selectedTag !== 'All') {
+        void searchByCategory(selectedTag);
       } else {
-        addToast({
-          title: 'Error',
-          description: result.error || 'Failed to update product',
-          variant: 'error',
-        });
+        void fetchProducts();
       }
     } catch (err) {
+      console.error('Error updating product:', err);
       addToast({
         title: 'Error',
         description: 'Failed to update product',
@@ -437,130 +352,94 @@ const ProductsPage = () => {
     setSearchTerm('');
     setSearchResults(null);
     setSearchError(null);
-    fetchProducts(false); // Fetch all products again when search is reset
+    void fetchProducts(); // Fetch all products again when search is reset
   };
 
   const fetchProducts = async (isLoadMore = false) => {
-    if (isLoadMore) {
-      setLoadingMore(true);
-    } else {
-      setInitialLoading(true);
-      setPage(1);
-      setProducts([]); // Clear products for a fresh fetch (e.g. when tag changes)
-      setHasMoreProducts(true); // Reset hasMoreProducts for new fetch operation
-    }
-
     try {
-      const res = await fetch(`/api/products?page=${isLoadMore ? page + 1 : 1}&pageSize=${PAGE_SIZE}`);
-      if (!res.ok) throw new Error('Failed to fetch products');
-      const data = await res.json();
-      if (!data.products) throw new Error('No products found in API response');
-
-      const newProducts = data.products as Product[];
-      
-      setProducts(prevProducts => isLoadMore ? [...prevProducts, ...newProducts] : newProducts);
-      setTotal(data.total);
-      
-      if (isLoadMore) {
-        setPage(prevPage => prevPage + 1);
-      }
-
-      // Determine if there are more products
-      let hasMore = true;
-      if (newProducts.length < PAGE_SIZE) {
-        hasMore = false;
-      } else if ((isLoadMore ? page + 1 : 1) * PAGE_SIZE >= data.total && data.total > 0) {
-        hasMore = false;
-      } else if (data.total === 0 && newProducts.length === 0 && !isLoadMore) {
-        hasMore = false;
-      }
-      setHasMoreProducts(hasMore);
-
       if (!isLoadMore) {
-        // Get both derived and assigned categories
-        const allCategories = new Set<string>();
-        
-        // Add assigned categories
-        newProducts.forEach((product: Product) => {
-          if (product.category) {
-            allCategories.add(product.category);
-          }
-        });
-        
-        // Add predefined categories that have matching products
-        newProducts.forEach((product: Product) => {
-          const derivedCategories = getProductCategories(product);
-          derivedCategories.forEach(cat => allCategories.add(cat));
-        });
-
-        const finalUniqueTags = Array.from(allCategories);
-        setUniqueTags(finalUniqueTags.length > 0 ? ['All', ...finalUniqueTags] : []);
-      }
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error fetching products');
-      setHasMoreProducts(false);
-    } finally {
-      if (isLoadMore) {
-        setLoadingMore(false);
+        setInitialLoading(true);
       } else {
-        setInitialLoading(false);
+        setLoadingMore(true);
       }
+
+      const client = new ProductApiClient({
+        supabaseUrl: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL!,
+        supabaseKey: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY!,
+        storageBucket: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET!,
+      });
+
+      const { products: fetchedProducts, total: totalProducts } = await client.getAllProducts(page, PAGE_SIZE);
+
+      // Set uniqueTags to include 'All' and all predefined categories
+      setUniqueTags(['All', ...Object.keys(categoryKeywords)]);
+
+      if (isLoadMore) {
+        setProducts(prev => [...prev, ...fetchedProducts]);
+      } else {
+        setProducts(fetchedProducts);
+      }
+
+      setTotal(totalProducts);
+      setHasMoreProducts(fetchedProducts.length === PAGE_SIZE);
+    } catch (err) {
+      console.error('Error fetching products:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch products');
+    } finally {
+      setInitialLoading(false);
+      setLoadingMore(false);
     }
   };
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  // Determine which products to display based on search results and filters
+  let productsToDisplayInGrid: Product[] = [];
+
+  if (searchResults !== null) {
+    productsToDisplayInGrid = searchResults;
+  } else {
+    productsToDisplayInGrid = products;
+  }
 
   const formatProductImagePath = (path: string): string => {
-    if (!path) return '/placeholder.png';
-    return path.startsWith('http') ? path : `${process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL}/${path}`;
+    if (!path) return '';
+    if (path.startsWith('http')) return path;
+    return `${process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL}/storage/v1/object/public/${process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET}/${path}`;
   };
 
   useEffect(() => {
-    // Handles the very first product load on component mount
-    if (!initialLoadDoneRef.current && !searchTerm.trim()) {
-      fetchProducts(false).then(() => {
-        initialLoadDoneRef.current = true;
-      });
-      fetchDynamicCategories(); // Fetch categories on initial load
-    } else if (searchTerm.trim()) {
-      setInitialLoading(false);
-      setHasMoreProducts(false);
+    if (!initialLoadDoneRef.current) {
+      void fetchProducts();
       initialLoadDoneRef.current = true;
     }
-  }, []); // Runs once on mount
+  }, []);
 
   useEffect(() => {
-    // Handles re-fetching when selectedTag changes (and not initial mount)
-    if (!isMountedSelectedTagRef.current) {
+    if (isMountedSelectedTagRef.current) {
+      if (selectedTag && selectedTag !== 'All') {
+        void searchByCategory(selectedTag);
+      } else {
+        void fetchProducts();
+      }
+    } else {
       isMountedSelectedTagRef.current = true;
-      return;
     }
-    if (!initialLoadDoneRef.current) return;
-    
-    setSearchResults(null); // Clear search results if any
-    setSearchTerm('');    // Clear search term
-    fetchProducts(false); // Refetch products for the new tag
   }, [selectedTag]);
 
   useEffect(() => {
-    // Handles data refresh after an edit operation completes
-    if (prevEditLoadingRef.current && !editLoading && initialLoadDoneRef.current) { // Transitioned from true to false, and initial load was done
-      // If not in search mode, refetch all products to ensure data consistency.
-      // Search mode is handled by its own search result update.
-      if (!searchTerm.trim()) {
-          fetchProducts(false); 
-      }
-      // If in search mode, the search results should have been updated by handleEditSubmit's logic.
-      // If a more direct refresh of search is needed, handleSearch could be called, but be mindful of UX.
+    if (prevEditLoadingRef.current && !editLoading) {
+      void fetchProducts();
     }
-    prevEditLoadingRef.current = editLoading; // Update ref for next render
-  }, [editLoading, searchTerm]); // Rely on searchTerm to know if we were in search mode
+    prevEditLoadingRef.current = editLoading;
+  }, [editLoading]);
 
   const handlePageChange = async (newPage: number) => {
     // This function is now OBSOLETE due to infinite scroll
   };
 
   // Add new handler for multiple selection
-  const handleProductSelect = (productId: number, e: React.MouseEvent<HTMLElement> | React.ChangeEvent<HTMLInputElement>) => {
+  const handleProductSelect = (productId: string, e: React.MouseEvent<HTMLElement> | React.ChangeEvent<HTMLInputElement>) => {
     e.stopPropagation(); // Prevent opening edit dialog when selecting
     if (isMultiSelectMode) {
       setSelectedProducts(prev => {
@@ -622,7 +501,7 @@ const ProductsPage = () => {
         ));
 
         // Refresh categories
-        await fetchDynamicCategories();
+        await fetchProducts();
 
         addToast({
           title: 'Success',
@@ -653,28 +532,6 @@ const ProductsPage = () => {
       setBulkUpdateLoading(false);
     }
   };
-
-  if (initialLoading && !error && products.length === 0 && !searchResults) {
-    return <LoadingOverlay isVisible={true} />;
-  }
-  if (error) return <div>Error: {error}</div>;
-
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-
-  let productsToDisplayInGrid: Product[] = [];
-
-  if (searchResults !== null) {
-    productsToDisplayInGrid = searchResults;
-  } else if (selectedTag && selectedTag !== 'All') {
-    productsToDisplayInGrid = products.filter(p => {
-      // Check both assigned category and derived categories
-      const assignedCategory = p.category;
-      const derivedCategories = getProductCategories(p);
-      return assignedCategory === selectedTag || derivedCategories.includes(selectedTag);
-    });
-  } else {
-    productsToDisplayInGrid = products;
-  }
 
   // Modify the existing product grid rendering to include selection UI
   const renderProductCard = (product: Product) => (
@@ -732,6 +589,47 @@ const ProductsPage = () => {
     </div>
   );
 
+  const searchByCategory = async (category: string) => {
+    setInitialLoading(true);
+    try {
+      const client = new ProductApiClient({
+        supabaseUrl: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL!,
+        supabaseKey: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY!,
+        storageBucket: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET!,
+      });
+
+      const result = await client.searchByMainCategory(category);
+      
+      if (result.found && result.products && result.count !== undefined) {
+        setProducts(result.products);
+        setTotal(result.count);
+        setHasMoreProducts(false); // Disable infinite scroll for category results
+      } else {
+        setProducts([]);
+        setTotal(0);
+        setHasMoreProducts(false);
+      }
+    } catch (err) {
+      console.error('Error searching by category:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch products by category');
+    } finally {
+      setInitialLoading(false);
+    }
+  };
+
+  const filterProductsByCategory = (products: Product[], category: string | null): Product[] => {
+    if (!category || category === 'All') return products;
+    return products.filter(product => {
+      const productCategories = getProductCategories(product);
+      return productCategories.includes(category);
+    });
+  };
+
+  if (initialLoading && !error && products.length === 0 && !searchResults) {
+    return <LoadingOverlay isVisible={true} />;
+  }
+  if (error) return <div>Error: {error}</div>;
+
   return (
     <div className="min-h-screen relative">
       {editLoading && (
@@ -772,37 +670,16 @@ const ProductsPage = () => {
                     <select 
                       value={bulkCategoryValue}
                       onChange={e => {
-                        const value = e.target.value;
-                        setBulkCategoryValue(value);
-                        if (value === '__ADD_NEW__') {
-                          setShowBulkNewCategoryInput(true);
-                        } else {
+                        setBulkCategoryValue(e.target.value);
                           setShowBulkNewCategoryInput(false);
                           setBulkNewCategoryName('');
-                        }
                       }}
                       className="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-gray-200"
                     >
                       <option value="">Select Category</option>
-                      {/* Predefined Categories */}
-                      <optgroup label="Predefined Categories">
                         {Object.keys(categoryKeywords).sort().map(cat => (
-                          <option key={`predefined-${cat}`} value={cat}>{cat}</option>
+                        <option key={cat} value={cat}>{cat}</option>
                         ))}
-                      </optgroup>
-                      {/* Dynamic Categories */}
-                      {dynamicCategories.length > 0 && (
-                        <optgroup label="Custom Categories">
-                          {dynamicCategories
-                            .filter(cat => !Object.keys(categoryKeywords).includes(cat))
-                            .sort()
-                            .map(cat => (
-                              <option key={`dynamic-${cat}`} value={cat}>{cat}</option>
-                            ))
-                          }
-                        </optgroup>
-                      )}
-                      <option value="__ADD_NEW__">-- Add New Category --</option>
                     </select>
                     {showBulkNewCategoryInput && (
                       <input
@@ -874,7 +751,7 @@ const ProductsPage = () => {
         </div>
 
         {/* Tag Filters in fixed header */}
-        {!searchResults && uniqueTags.length > 0 && (
+        {uniqueTags.length > 0 && (
           <div className="px-4 pb-4">
             <div className="flex flex-wrap gap-3 p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
               {uniqueTags.map(tag => (
@@ -905,7 +782,7 @@ const ProductsPage = () => {
             <div className="text-center text-gray-500 my-8">No products found for your search.</div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 my-8">
-              {searchResults.map(renderProductCard)}
+              {filterProductsByCategory(searchResults, selectedTag).map(renderProductCard)}
             </div>
           )
         ) : (
@@ -917,7 +794,7 @@ const ProductsPage = () => {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {productsToDisplayInGrid.map(renderProductCard)}
+              {filterProductsByCategory(productsToDisplayInGrid, selectedTag).map(renderProductCard)}
             </div>
           )
         )}
@@ -955,8 +832,8 @@ const ProductsPage = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Product Tag (comma-separated)</label>
               <input
                 type="text"
-                value={editTag.join(', ')} 
-                onChange={e => setEditTag(e.target.value.split(',').map(tag => tag.trim().toLowerCase()).filter(tag => tag))}
+                value={editTag.join(', ')}
+                onChange={e => setEditTag(e.target.value.split(',').map(tag => tag.trim()).filter(tag => tag))}
                 className="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 w-full focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-gray-200"
               />
             </div>
@@ -966,53 +843,17 @@ const ProductsPage = () => {
                 value={selectedCategoryValue}
                 onChange={e => {
                   const value = e.target.value;
+                  console.log('Category selected:', value);
                   setSelectedCategoryValue(value);
-                  if (value === '__ADD_NEW__') {
-                    setShowNewCategoryInput(true);
-                    setEditCategory(''); // Clear the category until user types a new one
-                  } else {
-                    setShowNewCategoryInput(false);
-                    setNewCategoryName('');
-                    setEditCategory(value); // Set to selected existing category
-                  }
+                  setEditCategory(value);
                 }}
                 className="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 w-full focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-gray-200 mb-2"
               >
                 <option value="">Select Category</option>
-                {/* Predefined Categories */}
-                <optgroup label="Predefined Categories">
-                  {Object.keys(categoryKeywords).sort().map(cat => (
-                    <option key={`predefined-${cat}`} value={cat}>{cat}</option>
-                  ))}
-                </optgroup>
-                {/* Dynamic Categories */}
-                {dynamicCategories.length > 0 && (
-                  <optgroup label="Custom Categories">
-                    {dynamicCategories
-                      .filter(cat => !Object.keys(categoryKeywords).includes(cat)) // Only show categories that aren't in predefined list
-                      .sort()
-                      .map(cat => (
-                        <option key={`dynamic-${cat}`} value={cat}>{cat}</option>
-                      ))
-                    }
-                  </optgroup>
-                )}
-                <option value="__ADD_NEW__">-- Add New Category --</option>
+                {Object.keys(categoryKeywords).sort().map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
               </select>
-
-              {showNewCategoryInput && (
-                <input
-                  type="text"
-                  value={newCategoryName}
-                  onChange={e => {
-                    setNewCategoryName(e.target.value);
-                    setEditCategory(e.target.value); // Update editCategory as user types new name
-                  }}
-                  placeholder="Enter new category name"
-                  className="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 w-full focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-gray-200"
-                />
-              )}
-              {/* <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Type a new name to create a new category.</p> */}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Product Image</label>
