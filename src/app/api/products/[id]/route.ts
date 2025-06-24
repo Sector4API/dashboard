@@ -18,7 +18,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       supabaseKey: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY!, 
       storageBucket: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET!,
     });
-    const result = await client.deleteProduct(isNaN(Number(id)) ? id : Number(id));
+    const result = await client.deleteProduct(isNaN(Number(id)) ? id : String(Number(id)));
     if (result.success) return NextResponse.json({ success: true });
     return NextResponse.json({ error: result.error || 'Delete failed' }, { status: 500 });
   } catch (error) {
@@ -79,6 +79,28 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       productTagArray = productTag.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
     }
 
+    // Normalize the category to match our predefined categories
+    const categoryMap: { [key: string]: string } = {
+      'Savoury': 'Savoury',
+      'Frozen-veggies-breads': 'Frozen-veggies-breads',
+      'Pickle': 'Pickle',
+      'Cookies': 'Cookies',
+      'Spreads': 'Spreads',
+      'Chocolates': 'Chocolates',
+      'Noodles-Pasta': 'Noodles-Pasta',
+      'Sauces': 'Sauces',
+      'Sweets': 'Sweets',
+      'Cereals': 'Cereals',
+      'Vegetables': 'Vegetables',
+      'Fruits': 'Fruits',
+      'Meat-Seafoods': 'Meat-Seafoods',
+      'Condiments': 'Condiments'
+    };
+
+    const normalizedCategory = mainCategory && typeof mainCategory === 'string' 
+      ? (Object.keys(categoryMap).find(cat => cat.toLowerCase() === mainCategory.toLowerCase()) || mainCategory)
+      : mainCategory;
+
     const client = new ProductApiClient({
       supabaseUrl: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_URL,
       supabaseKey: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY,
@@ -105,15 +127,17 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     // Handle file upload if present
     let imagePath = undefined;
     if (fileInput) {
-      // Get the directory from current image path
+      // Get the directory from current image path or create new one based on category
       let uploadDirectory = '';
       if (currentProduct?.image_path) {
         const lastSlashIndex = currentProduct.image_path.lastIndexOf('/');
         if (lastSlashIndex !== -1) {
           uploadDirectory = currentProduct.image_path.substring(0, lastSlashIndex + 1);
         }
-      } else {
-        // If no existing image, determine directory from main category
+      }
+
+      // If no existing directory, determine from main category
+      if (!uploadDirectory && mainCategory) {
         const categoryMap: { [key: string]: string } = {
           'Savoury': 'savoury/',
           'Frozen-veggies-breads': 'frozen-veggies-breads/',
@@ -124,9 +148,19 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
           'Noodles-Pasta': 'noodles-pasta/',
           'Sauces': 'sauces/',
           'Sweets': 'sweets/',
-          'Cereals': 'cereals/'
+          'Cereals': 'cereals/',
+          'Vegetables': 'vegetables/',
+          'Fruits': 'fruits/',
+          'Meat-Seafoods': 'meat-seafoods/',
+          'Condiments': 'condiments/'
         };
-        uploadDirectory = categoryMap[mainCategory as string] || '';
+        
+        // Convert category to lowercase for case-insensitive matching
+        const normalizedCategory = mainCategory.toString();
+        const matchingCategory = Object.keys(categoryMap).find(
+          cat => cat.toLowerCase() === normalizedCategory.toLowerCase()
+        );
+        uploadDirectory = matchingCategory ? categoryMap[matchingCategory] : '';
       }
 
       // Keep the original file name from the upload
@@ -164,7 +198,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     const result = await client.updateProduct(productId, {
       product_name: productName as string,
       product_tag: productTagArray,
-      main_category: mainCategory as string,
+      main_category: normalizedCategory as string,
       ...(imagePath && { image_path: imagePath })
     });
 

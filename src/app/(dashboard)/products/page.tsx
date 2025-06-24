@@ -29,10 +29,10 @@ const categoryKeywords: Record<string, string[]> = {
   'Sauces': ['sauce'],
   'Sweets': ['sweet'],
   'Cereals': ['cereal'],
-  'Vegetables': ['Vegetables'],
+  'Vegetables': ['vegetables'],
   'Fruits': ['fruits'],
-  'Meat-Seafoods': ['Meat-Seafoods'],
-  'Condiments': ['Condiments']
+  'Meat-Seafoods': ['meat', 'seafood', 'fish', 'chicken', 'mutton'],
+  'Condiments': ['condiments', 'seasoning', 'spices']
 };
 
 const getProductCategories = (product: Product): string[] => {
@@ -590,6 +590,7 @@ const ProductsPage = () => {
   );
 
   const searchByCategory = async (category: string) => {
+    console.log('Category clicked:', category);
     setInitialLoading(true);
     try {
       const client = new ProductApiClient({
@@ -598,13 +599,30 @@ const ProductsPage = () => {
         storageBucket: process.env.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET!,
       });
 
-      const result = await client.searchByMainCategory(category);
+      // Find the exact matching category from our predefined list
+      const exactCategory = Object.keys(categoryKeywords).find(
+        cat => cat.toLowerCase() === category.toLowerCase()
+      );
+
+      if (!exactCategory) {
+        console.log('No matching category found');
+        setProducts([]);
+        setTotal(0);
+        setHasMoreProducts(false);
+        return;
+      }
+
+      console.log('Searching with exact category:', exactCategory);
+      const result = await client.searchByMainCategory(exactCategory);
+      console.log('Search result:', result);
       
       if (result.found && result.products && result.count !== undefined) {
+        console.log('Setting products:', result.products.length);
         setProducts(result.products);
         setTotal(result.count);
         setHasMoreProducts(false); // Disable infinite scroll for category results
       } else {
+        console.log('No products found');
         setProducts([]);
         setTotal(0);
         setHasMoreProducts(false);
@@ -619,9 +637,10 @@ const ProductsPage = () => {
 
   const filterProductsByCategory = (products: Product[], category: string | null): Product[] => {
     if (!category || category === 'All') return products;
+    const categoryLower = category.toLowerCase();
     return products.filter(product => {
-      const productCategories = getProductCategories(product);
-      return productCategories.includes(category);
+      // Use the main_category field directly instead of deriving categories
+      return product.main_category?.toLowerCase() === categoryLower;
     });
   };
 

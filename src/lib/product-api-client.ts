@@ -332,21 +332,20 @@ class ProductApiClient {
 
   async getDistinctCategories() {
     try {
-      // console.log("API Client: Starting getDistinctCategories...");
+      console.log("API Client: Starting getDistinctCategories...");
       const { data, error } = await this.supabase
         .from('products_new')
         .select('main_category')
         .not('main_category', 'is', null)
-        .neq('main_category', '')
-        .order('main_category');
+        .neq('main_category', '');
 
       if (error) {
-        // console.error("API Client: Error fetching categories:", error);
+        console.error("API Client: Error fetching categories:", error);
         throw error;
       }
 
       if (!data) {
-        // console.log("API Client: No data returned");
+        console.log("API Client: No data returned");
         return [];
       }
 
@@ -359,12 +358,12 @@ class ProductApiClient {
         )
       );
 
-      // console.log("API Client: Found categories:", distinctCategories);
-      // console.log("API Client: Raw data from DB:", data);
+      console.log("API Client: Raw categories from DB:", data.map(item => item.main_category));
+      console.log("API Client: Distinct categories:", distinctCategories);
       
       return distinctCategories.sort();
     } catch (error) {
-      // console.error("API Client: Error in getDistinctCategories:", error);
+      console.error("API Client: Error in getDistinctCategories:", error);
       throw error; // Let the API route handle the error
     }
   }
@@ -586,22 +585,38 @@ class ProductApiClient {
 
   async searchByMainCategory(category: string) {
     try {
+      console.log('Searching for category:', category);
+      
+      // Use case-insensitive exact matching
       const { data, error } = await this.supabase
         .from('products_new')
         .select('*')
-        .ilike('main_category', `%${category}%`);
+        .ilike('main_category', category);
+
+      console.log('Search results:', { data, error });
 
       if (error) throw error;
 
       // If products found, get the image URLs
       if (data && data.length > 0) {
+        console.log('Found products, getting image URLs');
         const productsWithUrls = await Promise.all(data.map(async (product) => {
-          const { data: urlData } = this.supabase.storage.from(this.storageBucket).getPublicUrl(product.image_path);
+          // Ensure image path includes category directory
+          let imagePath = product.image_path;
+          if (!imagePath.includes('/')) {
+            const categoryDir = product.main_category.toLowerCase().replace(/[^a-z0-9-]/g, '-') + '/';
+            imagePath = categoryDir + imagePath;
+          }
+          
+          const { data: urlData } = this.supabase.storage.from(this.storageBucket).getPublicUrl(imagePath);
           return {
             ...product,
-            imageUrl: urlData.publicUrl
+            imageUrl: urlData.publicUrl,
+            image_path: imagePath
           };
         }));
+
+        console.log('Products with URLs:', productsWithUrls);
 
         return {
           found: true,
@@ -610,6 +625,7 @@ class ProductApiClient {
           category: category
         };
       } else {
+        console.log('No products found for category:', category);
         return {
           found: false,
           message: `No products found in category "${category}"`,
