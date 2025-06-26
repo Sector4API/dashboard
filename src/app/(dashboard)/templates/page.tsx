@@ -400,13 +400,13 @@ export default function TemplatesPage() {
       }
 
       if (!files.headerImage || !files.thumbnail) {
-          addToast({
-            title: 'Error',
-            description: 'Please upload required images (Header and Thumbnail)',
-            variant: 'error',
-          });
+        addToast({
+          title: 'Error',
+          description: 'Please upload required images (Header and Thumbnail)',
+          variant: 'error',
+        });
         setLoading(false);
-          return;
+        return;
       }
 
       const seasonalBadgeFiles = files.seasonalBadges.filter(Boolean);
@@ -426,18 +426,12 @@ export default function TemplatesPage() {
         };
 
         // Create template with required files
-        await createTemplate({
+        const newTemplate = await createTemplate({
           ...baseData,
           headerImage: files.headerImage,
           thumbnail: files.thumbnail,
           ...(files.dateImage && { dateImage: files.dateImage }),
           ...(files.seasonalBadges.length > 0 && { seasonalBadges: files.seasonalBadges })
-        });
-
-        addToast({
-          title: 'Success',
-          description: 'Template created successfully!',
-          variant: 'success',
         });
 
         // Reset form
@@ -467,9 +461,32 @@ export default function TemplatesPage() {
 
         setSeasonalBadges([1, 2, 3]);
 
-        // Fetch updated templates
-        const updatedTemplates = await getTemplates();
-        setTemplates(updatedTemplates || []);
+        // Update templates list by adding the new template
+        setTemplates(prevTemplates => {
+          const updatedTemplates = [newTemplate, ...prevTemplates];
+          // Sort by display_order if it exists, otherwise keep the order as is
+          return updatedTemplates.sort((a, b) => 
+            (a.display_order || 0) - (b.display_order || 0)
+          );
+        });
+
+        // Show success message
+        addToast({
+          title: 'Success',
+          description: 'Template created successfully!',
+          variant: 'success',
+        });
+
+        // Try to fetch updated templates in the background
+        try {
+          const updatedTemplates = await getTemplates();
+          if (updatedTemplates) {
+            setTemplates(updatedTemplates);
+          }
+        } catch (fetchError) {
+          console.error('Error fetching updated templates:', fetchError);
+          // Don't show error toast since template was created successfully
+        }
       } catch (error) {
         console.error('Error during template creation:', error);
         addToast({
@@ -1082,7 +1099,7 @@ export default function TemplatesPage() {
   };
 
   const addSeasonalBadge = () => {
-    if (seasonalBadges.length < 10) {
+    if (seasonalBadges.length < 20) {
       setSeasonalBadges([...seasonalBadges, seasonalBadges.length + 1]);
     }
   };
@@ -1785,10 +1802,10 @@ export default function TemplatesPage() {
                     <button
                       type="button"
                       onClick={addSeasonalBadge}
-                      disabled={seasonalBadges.length >= 10}
+                      disabled={seasonalBadges.length >= 20}
                       className={cn(
                         "rounded-full p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900",
-                        seasonalBadges.length >= 10 && "opacity-50 cursor-not-allowed"
+                        seasonalBadges.length >= 20 && "opacity-50 cursor-not-allowed"
                       )}
                     >
                       <Plus className="h-5 w-5" />

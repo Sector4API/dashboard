@@ -1,5 +1,98 @@
 import { dashboardSupabase } from './supabase';
 
+// Helper function to compress an image to target size (1MB)
+const compressImage = async (file: File): Promise<File> => {
+  return new Promise((resolve, reject) => {
+    const ONE_MB = 1024 * 1024; // 1MB in bytes
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        let quality = 0.9; // Initial quality
+        let iterations = 0;
+        const MAX_ITERATIONS = 10;
+
+        // If image is already under 1MB, return original
+        if (file.size <= ONE_MB) {
+          resolve(file);
+          return;
+        }
+
+        // Calculate aspect ratio
+        const aspectRatio = width / height;
+
+        // If width or height is too large, reduce dimensions
+        const MAX_DIMENSION = 2048;
+        if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+          if (width > height) {
+            width = MAX_DIMENSION;
+            height = Math.round(width / aspectRatio);
+          } else {
+            height = MAX_DIMENSION;
+            width = Math.round(height * aspectRatio);
+          }
+        }
+
+        const compress = () => {
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Could not get canvas context'));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error('Could not compress image'));
+                return;
+              }
+
+              // If size is still too large and we haven't tried too many times
+              if (blob.size > ONE_MB && iterations < MAX_ITERATIONS) {
+                iterations++;
+                quality -= 0.1; // Reduce quality
+                if (quality < 0.1) quality = 0.1; // Don't go below 0.1
+                compress(); // Try again
+                return;
+              }
+
+              // Create a new file from the blob
+              const compressedFile = new File([blob], file.name, {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+              });
+
+              resolve(compressedFile);
+            },
+            'image/jpeg',
+            quality
+          );
+        };
+
+        compress();
+      };
+
+      img.onerror = () => {
+        reject(new Error('Failed to load image'));
+      };
+    };
+
+    reader.onerror = () => {
+      reject(new Error('Failed to read file'));
+    };
+  });
+};
+
 type TemplateInput = {
   name: string;
   description: string;
@@ -100,6 +193,76 @@ const updateDisplayOrders = async (templates: any[]) => {
   }
 };
 
+// Helper function to retry failed operations
+const retryOperation = async <T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  delay: number = 1000
+): Promise<T> => {
+  let lastError: any;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxRetries) break;
+      
+      // Wait before retrying, with exponential backoff
+      await new Promise(resolve => setTimeout(resolve, delay * attempt));
+    }
+  }
+  
+  throw lastError;
+};
+
+// Helper function to upload files in batches with retry logic
+const uploadFilesInBatches = async (
+  storageBucket: string,
+  folderName: string,
+  files: (File | null)[],
+  batchSize: number = 3
+): Promise<(string | null)[]> => {
+  const paths: (string | null)[] = new Array(files.length).fill(null);
+  
+  // Process files in batches
+  for (let i = 0; i < files.length; i += batchSize) {
+    const batch = files.slice(i, i + batchSize);
+    const batchPromises = batch.map(async (file, batchIndex) => {
+      if (!file) return null;
+      
+      const actualIndex = i + batchIndex;
+      const filePath = `${folderName}/${file.name}`;
+      
+      try {
+        await retryOperation(async () => {
+          const { error } = await dashboardSupabase.storage
+            .from(storageBucket)
+            .upload(filePath, file, { upsert: true });
+
+          if (error) throw error;
+        });
+        
+        paths[actualIndex] = filePath;
+        return filePath;
+      } catch (error) {
+        console.error(`Failed to upload file ${actualIndex + 1} after retries:`, error);
+        return null;
+      }
+    });
+
+    // Wait for current batch to complete before moving to next batch
+    await Promise.all(batchPromises);
+    
+    // Add a small delay between batches to prevent rate limiting
+    if (i + batchSize < files.length) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  return paths;
+};
+
 export const createTemplate = async (input: TemplateInput) => {
   const storageBucket = process.env.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET;
   if (!storageBucket) {
@@ -108,149 +271,155 @@ export const createTemplate = async (input: TemplateInput) => {
 
   let templateId: string | null = null;
   const folderName = input.name.toLowerCase()
-    .replace(/[^a-z0-9\s-_]/g, '') // Remove any characters that are not alphanumeric, space, hyphen or underscore
-    .replace(/\s+/g, '-') // Replace spaces with hyphens
-    .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
-    .replace(/^-+|-+$/g, ''); // Remove hyphens from start and end
+    .replace(/[^a-z0-9\s-_]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
   const uploadedFiles: string[] = [];
 
   try {
+    // Compress images before upload
+    const compressedHeaderImage = await compressImage(input.headerImage);
+    const compressedThumbnail = await compressImage(input.thumbnail);
+    let compressedDateImage = input.dateImage ? await compressImage(input.dateImage) : undefined;
+    const compressedSeasonalBadges = await Promise.all(
+      (input.seasonalBadges || []).map(async (badge) => {
+        if (badge) {
+          return compressImage(badge);
+        }
+        return null;
+      })
+    );
+
     // Get current templates to determine the new display order
-    const currentTemplates = await getTemplatesSortedByUpdate();
+    const currentTemplates = await retryOperation(async () => {
+      return await getTemplatesSortedByUpdate();
+    });
     
     // Create the new template with display_order 1
-    const { data: tempTemplate, error: dbError } = await dashboardSupabase
-      .from('templates')
-      .insert({
-        name: input.name,
-        description: input.description,
-        category: input.category,
-        tags: Array.isArray(input.tags) ? input.tags : [],
-        is_public: Boolean(input.isPublic ?? false),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        terms_section_background_color: input.terms_section_background_color,
-        product_section_background_color: input.product_section_background_color,
-        product_card_background_color: input.product_card_background_color,
-        global_text_color: input.global_text_color,
-        display_order: 1,
-        badge_position: {
-          x: 50,
-          y: 50,
-          rotation: 0,
-          scale: 1
-        }
-      })
-      .select()
-      .single();
+    const { data: tempTemplate, error: dbError } = await retryOperation(async () => {
+      return await dashboardSupabase
+        .from('templates')
+        .insert({
+          name: input.name,
+          description: input.description,
+          category: input.category,
+          tags: Array.isArray(input.tags) ? input.tags : [],
+          is_public: Boolean(input.isPublic ?? false),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          terms_section_background_color: input.terms_section_background_color,
+          product_section_background_color: input.product_section_background_color,
+          product_card_background_color: input.product_card_background_color,
+          global_text_color: input.global_text_color,
+          display_order: 1,
+          badge_position: {
+            x: 50,
+            y: 50,
+            rotation: 0,
+            scale: 1
+          }
+        })
+        .select()
+        .single();
+    });
 
     if (dbError) {
-      logger.error('Database insert error:', {
-        message: 'Database Error',
-        code: dbError.code,
-        details: dbError.details,
-        hint: dbError.hint
-      });
       throw dbError;
     }
 
     templateId = tempTemplate.id;
 
     // Update display orders for all existing templates
-    const updatedTemplates = [tempTemplate, ...currentTemplates];
-    await updateDisplayOrders(updatedTemplates);
+    await retryOperation(async () => {
+      const updatedTemplates = [tempTemplate, ...currentTemplates];
+      await updateDisplayOrders(updatedTemplates);
+    });
 
-    // Upload header image
-    const headerPath = `${folderName}/${input.headerImage.name}`;
-    const { error: headerError } = await dashboardSupabase.storage
-      .from(storageBucket)
-      .upload(headerPath, input.headerImage);
+    // Upload header image with retry
+    const headerPath = `${folderName}/${compressedHeaderImage.name}`;
+    await retryOperation(async () => {
+      const { error: headerError } = await dashboardSupabase.storage
+        .from(storageBucket)
+        .upload(headerPath, compressedHeaderImage);
 
-    if (headerError) {
-      throw headerError;
-    }
+      if (headerError) throw headerError;
+    });
     uploadedFiles.push(headerPath);
 
-    // Upload thumbnail
-    const thumbnailPath = `${folderName}/${input.thumbnail.name}`;
-    const { error: thumbnailError } = await dashboardSupabase.storage
-      .from(storageBucket)
-      .upload(thumbnailPath, input.thumbnail);
+    // Upload thumbnail with retry
+    const thumbnailPath = `${folderName}/${compressedThumbnail.name}`;
+    await retryOperation(async () => {
+      const { error: thumbnailError } = await dashboardSupabase.storage
+        .from(storageBucket)
+        .upload(thumbnailPath, compressedThumbnail);
 
-    if (thumbnailError) {
-      throw thumbnailError;
-    }
+      if (thumbnailError) throw thumbnailError;
+    });
     uploadedFiles.push(thumbnailPath);
 
-    // Upload date image
+    // Upload date image with retry
     let datePath = null;
-    if (input.dateImage) {
-      datePath = `${folderName}/${input.dateImage.name}`;
-      const { error: dateError } = await dashboardSupabase.storage
-        .from(storageBucket)
-        .upload(datePath, input.dateImage);
+    if (compressedDateImage) {
+      datePath = `${folderName}/${compressedDateImage.name}`;
+      await retryOperation(async () => {
+        const { error: dateError } = await dashboardSupabase.storage
+          .from(storageBucket)
+          .upload(datePath, compressedDateImage);
 
-      if (dateError) {
-        throw dateError;
-      }
+        if (dateError) throw dateError;
+      });
       uploadedFiles.push(datePath);
     }
 
-    // Upload seasonal badges
-    const badgePaths = await Promise.all(
-      (input.seasonalBadges || []).map(async (badge) => {
-        if (badge) {
-          const badgePath = `${folderName}/${badge.name}`;
-          const { error: badgeError } = await dashboardSupabase.storage
-            .from(storageBucket)
-            .upload(badgePath, badge);
-
-          if (badgeError) {
-            throw badgeError;
-          }
-          uploadedFiles.push(badgePath);
-          return badgePath;
-        }
-        return null;
-      })
-    );
+    // Upload seasonal badges in batches with retry logic
+    const badgePaths = await uploadFilesInBatches(storageBucket, folderName, compressedSeasonalBadges);
+    uploadedFiles.push(...badgePaths.filter((path): path is string => path !== null));
 
     // Update the database record with file paths
-    const { error: updateError } = await dashboardSupabase
-      .from('templates')
-      .update({
-        header_image_path: headerPath,
-        thumbnail_path: thumbnailPath,
-        date_image_path: datePath,
-        seasonal_badge_paths: badgePaths,
-      })
-      .eq('id', templateId);
+    await retryOperation(async () => {
+      const { error: updateError } = await dashboardSupabase
+        .from('templates')
+        .update({
+          header_image_path: headerPath,
+          thumbnail_path: thumbnailPath,
+          date_image_path: datePath,
+          seasonal_badge_paths: badgePaths,
+        })
+        .eq('id', templateId);
 
-    if (updateError) {
-      throw updateError;
-    }
+      if (updateError) throw updateError;
+    });
 
     return tempTemplate;
   } catch (error) {
     // If any error occurs, clean up any uploaded files
     if (uploadedFiles.length > 0) {
-      await dashboardSupabase.storage
-        .from(storageBucket)
-        .remove(uploadedFiles);
+      try {
+        await retryOperation(async () => {
+          await dashboardSupabase.storage
+            .from(storageBucket)
+            .remove(uploadedFiles);
+        });
+      } catch (cleanupError) {
+        console.error('Error cleaning up uploaded files:', cleanupError);
+      }
     }
 
     // If template was created but file upload failed, delete the template
     if (templateId) {
-      await dashboardSupabase
-        .from('templates')
-        .delete()
-        .eq('id', templateId);
+      try {
+        await retryOperation(async () => {
+          await dashboardSupabase
+            .from('templates')
+            .delete()
+            .eq('id', templateId);
+        });
+      } catch (deleteError) {
+        console.error('Error deleting template:', deleteError);
+      }
     }
 
-    logger.error('Template creation error:', {
-      message: error instanceof Error ? error.message : 'Unknown error',
-      details: error
-    });
     throw error;
   }
 };
@@ -381,10 +550,26 @@ export const updateTemplateAssets = async (templateId: string, files: {
     if (templateError) throw templateError;
 
     const folderName = template.name.toLowerCase()
-      .replace(/[^a-z0-9\s-_]/g, '') // Remove any characters that are not alphanumeric, space, hyphen or underscore
-      .replace(/\s+/g, '-') // Replace spaces with hyphens
-      .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
-      .replace(/^-+|-+$/g, ''); // Remove hyphens from start and end
+      .replace(/[^a-z0-9\s-_]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    // Compress all images before upload
+    const compressedFiles = {
+      headerImage: files.headerImage ? await compressImage(files.headerImage) : null,
+      thumbnail: files.thumbnail ? await compressImage(files.thumbnail) : null,
+      dateImage: files.dateImage ? await compressImage(files.dateImage) : null,
+      seasonalBadges: await Promise.all(
+        files.seasonalBadges.map(async (badge) => {
+          if (badge) {
+            return compressImage(badge);
+          }
+          return null;
+        })
+      )
+    };
+
     let headerImagePath = null;
     let thumbnailPath = null;
     let dateImagePath = null;
@@ -420,42 +605,33 @@ export const updateTemplateAssets = async (templateId: string, files: {
     }
 
     // Upload header image
-    if (files.headerImage) {
-      headerImagePath = `${folderName}/${files.headerImage.name}`;
+    if (compressedFiles.headerImage) {
+      headerImagePath = `${folderName}/${compressedFiles.headerImage.name}`;
       await dashboardSupabase.storage
         .from(storageBucket)
-        .upload(headerImagePath, files.headerImage, { upsert: true });
+        .upload(headerImagePath, compressedFiles.headerImage, { upsert: true });
     }
 
     // Upload thumbnail if provided
-    if (files.thumbnail) {
-      thumbnailPath = `${folderName}/${files.thumbnail.name}`;
+    if (compressedFiles.thumbnail) {
+      thumbnailPath = `${folderName}/${compressedFiles.thumbnail.name}`;
       await dashboardSupabase.storage
         .from(storageBucket)
-        .upload(thumbnailPath, files.thumbnail, { upsert: true });
+        .upload(thumbnailPath, compressedFiles.thumbnail, { upsert: true });
     }
 
     // Upload date image if provided
-    if (files.dateImage) {
-      dateImagePath = `${folderName}/${files.dateImage.name}`;
+    if (compressedFiles.dateImage) {
+      dateImagePath = `${folderName}/${compressedFiles.dateImage.name}`;
       await dashboardSupabase.storage
         .from(storageBucket)
-        .upload(dateImagePath, files.dateImage, { upsert: true });
+        .upload(dateImagePath, compressedFiles.dateImage, { upsert: true });
     }
 
-    // Update seasonal badges if provided
-    if (files.seasonalBadges.length > 0) {
-      await Promise.all(
-        files.seasonalBadges.map(async (badge, index) => {
-          if (badge) {
-            const badgePath = `${folderName}/${badge.name}`;
-            await dashboardSupabase.storage
-              .from(storageBucket)
-              .upload(badgePath, badge, { upsert: true });
-            seasonalBadgePaths[index] = badgePath;
-          }
-        })
-      );
+    // Upload seasonal badges in batches
+    if (compressedFiles.seasonalBadges.length > 0) {
+      const newBadgePaths = await uploadFilesInBatches(storageBucket, folderName, compressedFiles.seasonalBadges);
+      seasonalBadgePaths = newBadgePaths;
     }
 
     // Return the paths of the newly uploaded files
@@ -463,13 +639,9 @@ export const updateTemplateAssets = async (templateId: string, files: {
       headerImagePath: headerImagePath || template.header_image_path,
       thumbnailPath: thumbnailPath || template.thumbnail_path,
       dateImagePath: dateImagePath || template.date_image_path,
-      seasonalBadgePaths: seasonalBadgePaths.length > 0 ? seasonalBadgePaths : template.seasonal_badge_paths || []
+      seasonalBadgePaths: seasonalBadgePaths
     };
   } catch (error) {
-    logger.error('Error updating template assets:', {
-      message: error instanceof Error ? error.message : 'Unknown error',
-      details: error
-    });
     throw error;
   }
 };
