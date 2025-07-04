@@ -1,4 +1,4 @@
-import { LayoutDashboard, ShoppingBag, FileText, User, LogOut, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, ShoppingBag, FileText, User, LogOut, FolderOpen, type LucideIcon } from "lucide-react";
 
 export type SiteConfig = typeof siteConfig;
 export type Navigation = {
@@ -27,6 +27,11 @@ export const navigations: Navigation[] = [
     icon: FileText,
     name: "Templates",
     href: "/templates",
+  },
+  {
+    icon: FolderOpen,
+    name: "Category",
+    href: "/category",
   },
   {
     icon: User,

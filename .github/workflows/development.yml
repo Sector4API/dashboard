@@ -1,0 +1,114 @@
+name: Development Build
+
+on:
+  push:
+    branches: [ dev, development, staging ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 8
+        run_install: false
+
+    - name: Get pnpm store directory
+      shell: bash
+      run: |
+        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+    - name: Setup pnpm cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.STORE_PATH }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-store-
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Create environment file
+      run: |
+        echo "NEXT_PUBLIC_DASHBOARD_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_DASHBOARD_SUPABASE_URL }}" >> .env.local
+        echo "NEXT_PUBLIC_DASHBOARD_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_DASHBOARD_SUPABASE_ANON_KEY }}" >> .env.local
+        echo "NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET }}" >> .env.local
+        echo "NEXT_PUBLIC_PRODUCT_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_PRODUCT_SUPABASE_URL }}" >> .env.local
+        echo "NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY }}" >> .env.local
+        echo "PRODUCT_SUPABASE_SERVICE_KEY=${{ secrets.PRODUCT_SUPABASE_SERVICE_KEY }}" >> .env.local
+        echo "NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET }}" >> .env.local
+        echo "NEXT_PUBLIC_PRODUCT_SUPABASE_TRASH_BUCKET=${{ secrets.NEXT_PUBLIC_PRODUCT_SUPABASE_TRASH_BUCKET }}" >> .env.local
+        echo "DASHBOARD_SUPABASE_SERVICE_KEY=${{ secrets.DASHBOARD_SUPABASE_SERVICE_KEY }}" >> .env.local
+
+    - name: Run ESLint
+      run: pnpm lint
+
+    - name: Build application
+      run: pnpm build
+
+    - name: Run type check
+      run: pnpm run build
+
+  deploy-preview:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 8
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Create environment file
+      run: |
+        echo "NEXT_PUBLIC_DASHBOARD_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_DASHBOARD_SUPABASE_URL }}" >> .env.local
+        echo "NEXT_PUBLIC_DASHBOARD_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_DASHBOARD_SUPABASE_ANON_KEY }}" >> .env.local
+        echo "NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_DASHBOARD_SUPABASE_STORAGE_BUCKET }}" >> .env.local
+        echo "NEXT_PUBLIC_PRODUCT_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_PRODUCT_SUPABASE_URL }}" >> .env.local
+        echo "NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_PRODUCT_SUPABASE_ANON_KEY }}" >> .env.local
+        echo "PRODUCT_SUPABASE_SERVICE_KEY=${{ secrets.PRODUCT_SUPABASE_SERVICE_KEY }}" >> .env.local
+        echo "NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_PRODUCT_SUPABASE_STORAGE_BUCKET }}" >> .env.local
+        echo "NEXT_PUBLIC_PRODUCT_SUPABASE_TRASH_BUCKET=${{ secrets.NEXT_PUBLIC_PRODUCT_SUPABASE_TRASH_BUCKET }}" >> .env.local
+        echo "DASHBOARD_SUPABASE_SERVICE_KEY=${{ secrets.DASHBOARD_SUPABASE_SERVICE_KEY }}" >> .env.local
+
+    - name: Build for deployment
+      run: pnpm build
+
+    - name: Deploy to Vercel Preview
+      uses: amondnet/vercel-action@v25
+      if: github.event_name == 'pull_request'
+      with:
+        vercel-token: ${{ secrets.VERCEL_TOKEN }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        vercel-org-id: ${{ secrets.ORG_ID }}
+        vercel-project-id: ${{ secrets.PROJECT_ID }}
+        scope: ${{ secrets.VERCEL_ORG_ID }}
